@@ -12,7 +12,7 @@
 typedef struct Log_Pck_Struct {
     bool isSampling;
     float rh;
-    float tempc;
+    float tempC;
     float updraftVel;
     float inlineFlow;
     float nozzleVel;
@@ -23,8 +23,9 @@ typedef struct Log_Pck_Struct {
 #define BUF_SIZE 6
 
 /**Global Variables*/
-static float updraftVelBuf[BUF_SIZE]          = {};
-static float inlineFlowBuf[BUF_SIZE]          = {};
+enum Control{FLOW_ON, FLOW_OFF, UPDATE_MOTOR};      /**LIST OF COMMANDS */
+static float g_updraftVelBuf[BUF_SIZE]        = {};
+static float g_inlineFlowBuf[BUF_SIZE]        = {};
 static Log_Pck_Struct log_pck                 = {};
 
 /**Variables used by interrupts*/
@@ -33,29 +34,28 @@ static volatile int g_inlineFlow;
 static volatile int g_tempC;
 
 static volatile uint8_t g_buffer_index        = 0;
-static volatile int   g_cycles                = 0;             /**< # of cycles for timer1 */
-static volatile bool  g_log_flag              = 0;             /**< flag to log to SD card and send data to another arduino via Serial*/
-static volatile bool  g_request_flag          = 0;             /**< flag to parse data sent by another arduino*/
-static volatile bool  g_update_flag           = 0;             /**< flag to calculate velocity, flow, and motor command*/
+static volatile int   g_cycles                = 0;  /**< # of cycles for timer1 */
+static volatile bool  g_log_flag              = 0;  /**< flag to log to SD card and send data to another arduino via Serial*/
+static volatile bool  g_request_flag          = 0;  /**< flag to parse data sent by another arduino*/
+static volatile bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
 static float                           g_sum  = 0;
 
 void setup() 
 {
 
-    /** Open serial communications and wait for port to open: */
-    while (!Serial) {
-        ; /**< wait for serial port to connect. Needed for native USB port only */
+                                                 
+    while (!Serial) {                            /** Open serial communications and wait for port to open: */
+        ;                                        /**< wait for serial port to connect. Needed for native USB port only */
     }
     Serial.begin(9600);
 
-    pinMode(LED_BUILTIN, OUTPUT); //temporary digital output to motor pin.
-    digitalWrite(LED_BUILTIN, 0);
+    pinMode(LED_BUILTIN, OUTPUT);                //temporary digital output to motor pin.
     Serial.print("\nInitializing SD card...");
-    // make sure that the default chip select pin is set to
-    // output, even if you don't use it:
-    pinMode(4, OUTPUT); /**Wireless SD shield uses pin 4 as chipselect*/
-    // we'll use the initialization code from the utility libraries
-    // since we're just testing if the card is working!
+                                                 // make sure that the default chip select pin is set to
+                                                 // output, even if you don't use it:
+    pinMode(4, OUTPUT);                          /**Wireless SD shield uses pin 4 as chipselect*/
+                                                 // we'll use the initialization code from the utility libraries
+                                                 // since we're just testing if the card is working!
     if (!SD.begin(4)) {
         Serial.println("initialization failed. Things to check:");
         Serial.println("* is a card inserted?");
@@ -78,11 +78,15 @@ void setup()
 
 }
 
-/**Timer frequency: 1 cycle per second*/
+/** Timer frequency: 1 cycle per second
+     Every 1 cycle read analog sensors in buffer and
+     set flag to calculate velocity and flow, and to update motor speed
+*/
 ISR(TIMER1_OVF_vect)        
 {
-//#define PERIOD_THRESHOLD1 1   /** Every 1 cycle read analog sensors in buffer and set flag to calculate velocity and flow, and to update motor speed*/
-#define PERIOD_THRESHOLD2 5  /** Every 10 cycles set flag to log data and send over Serial*/
+//#define PERIOD_UPDATE_SENSORS 1
+                              
+#define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
      if(g_buffer_index == BUF_SIZE) 
@@ -96,7 +100,7 @@ ISR(TIMER1_OVF_vect)
     ++g_cycles;               /** number of seconds elapsed*/
     g_update_flag = true;
     
-    if(PERIOD_THRESHOLD2 == g_cycles){
+    if(PERIOD_LOGDATA == g_cycles){
         g_log_flag    = true;        
         g_cycles = 0;
     }
@@ -127,8 +131,8 @@ static int log_info(Log_Pck_Struct *pck)
         dataFile.print(pck->isSampling);
         dataFile.print(", rh = ");
         dataFile.print(pck->rh, 4);
-        dataFile.print(", tempc = ");
-        dataFile.print(pck->tempc, 2);
+        dataFile.print(", tempC = ");
+        dataFile.print(pck->tempC, 2);
         dataFile.print(", v_updraft = ");
         dataFile.print(pck->updraftVel, 4);
         dataFile.print(", inlineFlow = ");
@@ -150,8 +154,8 @@ static int log_info(Log_Pck_Struct *pck)
     Serial.print(pck->isSampling);
     Serial.print(", rh = ");
     Serial.print(pck->rh, 4);
-    Serial.print(", tempc = ");
-    Serial.print(pck->tempc, 2);
+    Serial.print(", tempC = ");
+    Serial.print(pck->tempC, 2);
     Serial.print(", v_updraft = ");
     Serial.print(pck->updraftVel, 4);
     Serial.print(", inlineFlow = ");
@@ -178,17 +182,21 @@ static int parse_stringcmd()
 
 static int execute_cmd(void* val, uint8_t cmd)
 {
-    enum Control{FLOW_ON, FLOW_OFF, UPDATE_MOTOR};
-
     if(cmd == FLOW_ON){
+        log_pck.isSampling = 1;
         Serial.println(cmd);
+        //send value to digital pin?
         
     } else if(cmd == FLOW_OFF){
+        log_pck.isSampling = 0;
         Serial.println(cmd);
+        //send LOW to digital pin.
 
     } else if(cmd == UPDATE_MOTOR){
-      
-        
+        Serial.println(cmd);
+        int* tval = val;
+        Serial.println(*tval);
+        //send value to digital pin? 
     }
     
     return 0;  
@@ -227,33 +235,40 @@ void loop()
         
 #define MAP(x, a, b, c, d) ((x - a) / (b - a) * (d - c) + c)
 
-        {
+        { /**<-----This set of braces (or block) is for scoping purposes. Which
+                   determines the lifetime of variables when the block is exited.
+          */
             uint16_t gainfactor     = 1;  // 1 is
             int iso_nozzle_diameter = 2; //2 is place holder
             double tempC            = 1.0; //1 is place holder for equation
             double updraft_v        = g_updraftVel * 0.018 ; //velocity in m/s
             double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
                                           * (273.15 + tempC) / (273.15 + 21.11);
-            double nozzle_v         = inline_f/ 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
 
             /**store vel and flow in ring buffer.
                subtract 1 from array index because g_buffer_index
                is incremented in the interrupt function after
                reading analog value.
             */
-            updraftVelBuf[g_buffer_index - 1] = updraft_v;
-            inlineFlowBuf[g_buffer_index - 1] = inline_f;
+            int pos = g_buffer_index - 1;
             
-            log_pck.updraftVel      = movingAverage(updraftVelBuf, &g_sum, g_buffer_index - 1
-                                                                   ,BUF_SIZE, updraft_v);
-            log_pck.inlineFlow      = movingAverage(inlineFlowBuf, &g_sum, g_buffer_index - 1
-                                                                   ,BUF_SIZE, inline_f );
+            g_updraftVelBuf[pos] = updraft_v;
+            g_inlineFlowBuf[pos] = inline_f;
+            
+            log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_sum, pos,BUF_SIZE, updraft_v);
+            log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, pos,BUF_SIZE, inline_f );
+            log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
+            log_pck.tempC           = tempC;
+            
             if(log_pck.isSampling){
-                log_pck.motorcommand   += (int)gainfactor*(nozzle_v-updraft_v);
+                log_pck.motorcommand   += (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
                 //output command to motor
+                execute_cmd(&log_pck.motorcommand, UPDATE_MOTOR);
             } else
                 log_pck.motorcommand    = 0;
                 //output command to motor
+                execute_cmd(null, FLOW_OFF);
+
        }
 
     }
