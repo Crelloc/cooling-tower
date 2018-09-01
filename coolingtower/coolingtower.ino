@@ -1,22 +1,43 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 08-28-18
+ * * Last Modified: 08-31-18
 */
 
 #include <SPI.h>
 #include <SD.h>
 //#include "RTClib.h"
 
+
+typedef struct Log_Pck_Struct {
+    bool isSampling;
+    float rh;
+    float tempc;
+    float updraftVel;
+    float inlineFlow;
+    float nozzleVel;
+    int motorcommand;
+} Log_Pck_Struct;
+
+
 #define BUF_SIZE 6
 
-static File           dataFile;
-static volatile int   g_cycles        = 0;             /**< # of cycles for timer1 */
-static volatile bool  log_flag        = 0;             /**< flag to log to SD card and send data to another arduino via Serial*/
-static volatile bool  request_flag    = 0;             /**< flag to parse data sent by another arduino*/
-static volatile bool  update_flag     = 0;             /**< flag to calculate velocity, flow, and motor command*/
-static volatile float buffer[2]       = {0.0f, 0.0f};  /**< buffer[0] = analog read for updraft velocity, buffer[1] = analog read for inline flow*/
-static volatile bool  isSampling_flag = 0;
+/**Global Variables*/
+static float updraftVelBuf[BUF_SIZE]          = {};
+static float inlineFlowBuf[BUF_SIZE]          = {};
+static Log_Pck_Struct log_pck                 = {};
+
+/**Variables used by interrupts*/
+static volatile int g_updraftVel;
+static volatile int g_inlineFlow;
+static volatile int g_tempC;
+
+static volatile uint8_t g_buffer_index        = 0;
+static volatile int   g_cycles                = 0;             /**< # of cycles for timer1 */
+static volatile bool  g_log_flag              = 0;             /**< flag to log to SD card and send data to another arduino via Serial*/
+static volatile bool  g_request_flag          = 0;             /**< flag to parse data sent by another arduino*/
+static volatile bool  g_update_flag           = 0;             /**< flag to calculate velocity, flow, and motor command*/
+static float                           g_sum  = 0;
 
 void setup() 
 {
@@ -27,6 +48,8 @@ void setup()
     }
     Serial.begin(9600);
 
+    pinMode(LED_BUILTIN, OUTPUT); //temporary digital output to motor pin.
+    digitalWrite(LED_BUILTIN, 0);
     Serial.print("\nInitializing SD card...");
     // make sure that the default chip select pin is set to
     // output, even if you don't use it:
@@ -38,10 +61,11 @@ void setup()
         Serial.println("* is a card inserted?");
         Serial.println("* is your wiring correct?");
         Serial.println("* did you change the chipSelect pin to match your shield or module?");
-       // return;
+
     } else {
         Serial.println("Wiring is correct and a card is present.");
     }
+
 
     /** initialize timer1 - 16 bit (65536) */
     noInterrupts();                            // disable all interrupts
@@ -58,61 +82,180 @@ void setup()
 ISR(TIMER1_OVF_vect)        
 {
 //#define PERIOD_THRESHOLD1 1   /** Every 1 cycle read analog sensors in buffer and set flag to calculate velocity and flow, and to update motor speed*/
-#define PERIOD_THRESHOLD2 10  /** Every 10 cycles set flag to log data and send over Serial*/
+#define PERIOD_THRESHOLD2 5  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
-    //buffer[0] = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Updraft Vel
-    //buffer[1] = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
+     if(g_buffer_index == BUF_SIZE) 
+        g_buffer_index = 0;
+        
+    //g_updraftVel = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Updraft Vel
+    //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
+    //g_tempC      = analogreadfunctiontobecoded;
 
-    g_cycles++;               /** number of seconds elapsed*/
-    update_flag = true;
+    g_buffer_index++;   
+    ++g_cycles;               /** number of seconds elapsed*/
+    g_update_flag = true;
     
     if(PERIOD_THRESHOLD2 == g_cycles){
-        log_flag    = true;        
+        g_log_flag    = true;        
         g_cycles = 0;
     }
 }
 
+//static void sprintf_f(float fval, char *c)
+//{
+//    char *tmpSign = (fval < 0) ? "-"   : "";
+//    float tmpVal  = (fval < 0) ? -fval : fval;
+//
+//    int tmpInt1   = tmpVal;
+//    float tmpFrac = tmpVal - tmpInt1;
+//    int tmpInt2 = trunc(tmpFrac * 10000);
+//
+//    sprintf(c, "fval = %s%d.%04d", tmpSign, tmpInt1, tmpInt2);
+//   
+//}
+
 /**will log to sd card*/
-static int log_info() 
+static int log_info(Log_Pck_Struct *pck) 
 {
+    int ret = 0;
     File dataFile = SD.open("datalog.txt", FILE_WRITE);
 
     // if the file is available, write to it:
     if (dataFile) {
-        dataFile.println("test string");
+        dataFile.print("Sampling = ");
+        dataFile.print(pck->isSampling);
+        dataFile.print(", rh = ");
+        dataFile.print(pck->rh, 4);
+        dataFile.print(", tempc = ");
+        dataFile.print(pck->tempc, 2);
+        dataFile.print(", v_updraft = ");
+        dataFile.print(pck->updraftVel, 4);
+        dataFile.print(", inlineFlow = ");
+        dataFile.print(pck->inlineFlow, 4);
+        dataFile.print(", v_nozzle = ");
+        dataFile.println(pck->nozzleVel, 4);
+        dataFile.print(", motorcmd = ");
+        dataFile.println(pck->motorcommand);
         dataFile.close();
-        // print to the serial port too:
-        Serial.println("test string");
+
     } else {
         Serial.println("error opening datalog.txt");
-        return -1;
+        ret = -1;
     }
-    return 0;
+
+
+    // print to the serial port too:
+    Serial.print("Sampling = ");
+    Serial.print(pck->isSampling);
+    Serial.print(", rh = ");
+    Serial.print(pck->rh, 4);
+    Serial.print(", tempc = ");
+    Serial.print(pck->tempc, 2);
+    Serial.print(", v_updraft = ");
+    Serial.print(pck->updraftVel, 4);
+    Serial.print(", inlineFlow = ");
+    Serial.print(pck->inlineFlow, 4);
+    Serial.print(", v_nozzle = ");
+    Serial.print(pck->nozzleVel, 4);
+    Serial.print(", motorcmd = ");
+    Serial.println(pck->motorcommand);
+    
+    return ret;
 }
 
 /**send via wireless signal*/
-static int send_pkt() 
+static int send_pkt(Log_Pck_Struct *pck) 
 {
     return 0;
+}
+
+/**parse string and return command */
+static int parse_stringcmd()
+{
+    return 0;
+}
+
+static int execute_cmd(void* val, uint8_t cmd)
+{
+    enum Control{FLOW_ON, FLOW_OFF, UPDATE_MOTOR};
+
+    if(cmd == FLOW_ON){
+        Serial.println(cmd);
+        
+    } else if(cmd == FLOW_OFF){
+        Serial.println(cmd);
+
+    } else if(cmd == UPDATE_MOTOR){
+      
+        
+    }
+    
+    return 0;  
+}
+
+
+void tests()
+{
+
+}
+
+float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double num)
+{
+    *Sum     = *Sum - Arr[pos] + num;
+    Arr[pos] = num;
+    return *Sum / len;
 }
 
 void loop()
 {
 
-    if(log_flag){
-      
-        log_flag = 0;
-        log_info();
-        send_pkt();  
-    }
-    if(request_flag){ /**< flag to parse data sent by another arduino.  This flag may change to using built in Serial flag*/
-        request_flag = 0;
+    if(g_log_flag){  
         
-    }              
-    if(update_flag){
-        update_flag = 0;
-          
+        g_log_flag = 0;
+        log_info(&log_pck);
+        send_pkt(&log_pck);  
     }
+//    if(g_request_flag){ // flag to parse data sent by another arduino.  
+//                          //This flag may change to using built in Serial flag
+//        g_request_flag = 0;
+//        
+//    }              
+    if(g_update_flag){
+      
+        g_update_flag = 0;
+        
+#define MAP(x, a, b, c, d) ((x - a) / (b - a) * (d - c) + c)
 
+        {
+            uint16_t gainfactor     = 1;  // 1 is
+            int iso_nozzle_diameter = 2; //2 is place holder
+            double tempC            = 1.0; //1 is place holder for equation
+            double updraft_v        = g_updraftVel * 0.018 ; //velocity in m/s
+            double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
+                                          * (273.15 + tempC) / (273.15 + 21.11);
+            double nozzle_v         = inline_f/ 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
+
+            /**store vel and flow in ring buffer.
+               subtract 1 from array index because g_buffer_index
+               is incremented in the interrupt function after
+               reading analog value.
+            */
+            updraftVelBuf[g_buffer_index - 1] = updraft_v;
+            inlineFlowBuf[g_buffer_index - 1] = inline_f;
+            
+            log_pck.updraftVel      = movingAverage(updraftVelBuf, &g_sum, g_buffer_index - 1
+                                                                   ,BUF_SIZE, updraft_v);
+            log_pck.inlineFlow      = movingAverage(inlineFlowBuf, &g_sum, g_buffer_index - 1
+                                                                   ,BUF_SIZE, inline_f );
+            if(log_pck.isSampling){
+                log_pck.motorcommand   += (int)gainfactor*(nozzle_v-updraft_v);
+                //output command to motor
+            } else
+                log_pck.motorcommand    = 0;
+                //output command to motor
+       }
+
+    }
+//      tests();
 }
