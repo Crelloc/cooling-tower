@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 08-31-18
+ * * Last Modified: 09-01-18
 */
 
 #include <SPI.h>
@@ -194,7 +194,7 @@ static int execute_cmd(void* val, uint8_t cmd)
 
     } else if(cmd == UPDATE_MOTOR){
         Serial.println(cmd);
-        int* tval = val;
+        int* tval = (int*)val;
         Serial.println(*tval);
         //send value to digital pin? 
     }
@@ -267,7 +267,7 @@ void loop()
             } else
                 log_pck.motorcommand    = 0;
                 //output command to motor
-                execute_cmd(null, FLOW_OFF);
+                execute_cmd(NULL, FLOW_OFF);
 
        }
 
