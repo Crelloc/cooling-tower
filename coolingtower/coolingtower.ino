@@ -19,11 +19,12 @@ typedef struct Log_Pck_Struct {
     int motorcommand;
 } Log_Pck_Struct;
 
-
 #define BUF_SIZE 6
 
 /**Global Variables*/
 enum Control{FLOW_ON, FLOW_OFF, UPDATE_MOTOR};      /**LIST OF COMMANDS */
+static char g_cmdBuffer[64]                   = {};
+static char g_cmdIndex                        =  0;
 static float g_updraftVelBuf[BUF_SIZE]        = {};
 static float g_inlineFlowBuf[BUF_SIZE]        = {};
 static Log_Pck_Struct log_pck                 = {};
@@ -35,8 +36,6 @@ static volatile int g_tempC;
 
 static volatile uint8_t g_buffer_index        = 0;
 static volatile int   g_cycles                = 0;  /**< # of cycles for timer1 */
-static volatile bool  g_log_flag              = 0;  /**< flag to log to SD card and send data to another arduino via Serial*/
-static volatile bool  g_request_flag          = 0;  /**< flag to parse data sent by another arduino*/
 static volatile bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
 static float                           g_sum  = 0;
 
@@ -89,21 +88,13 @@ ISR(TIMER1_OVF_vect)
 #define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
-     if(g_buffer_index == BUF_SIZE) 
-        g_buffer_index = 0;
-        
     //g_updraftVel = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Updraft Vel
     //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
     //g_tempC      = analogreadfunctiontobecoded;
-
-    g_buffer_index++;   
+ 
     ++g_cycles;               /** number of seconds elapsed*/
-    g_update_flag = true;
-    
-    if(PERIOD_LOGDATA == g_cycles){
-        g_log_flag    = true;        
-        g_cycles = 0;
-    }
+    g_update_flag = 1;
+   
 }
 
 //static void sprintf_f(float fval, char *c)
@@ -174,38 +165,52 @@ static int send_pkt(Log_Pck_Struct *pck)
     return 0;
 }
 
-/**parse string and return command */
-static int parse_stringcmd()
+static uint8_t get_stringcmd()
 {
-    return 0;
+    char c;
+    bool flag = 0;
+    while(Serial.available()){
+        c = Serial.read();
+        if(g_cmdIndex == 64){/*error check*/}  
+        if(c == '\r' || c == '\n'){
+            g_cmdBuffer[g_cmdIndex] = '\0';
+            g_cmdIndex = 0;
+            flag = 1;
+            break;
+        } else {
+            g_cmdBuffer[g_cmdIndex] = c;
+        }
+        g_cmdIndex++;
+         
+    }
+    return flag;
 }
 
-static int execute_cmd(void* val, uint8_t cmd)
+static int execute_cmd(void* val, char const* cmd)
 {
-    if(cmd == FLOW_ON){
-        log_pck.isSampling = 1;
-        Serial.println(cmd);
+    Serial.print("cmd: ");
+    Serial.print(cmd);
+    if(strcmp(cmd, "S")==0){
+        log_pck.isSampling = *(int*)val;
+        Serial.println(log_pck.isSampling);
         //send value to digital pin?
         
-    } else if(cmd == FLOW_OFF){
-        log_pck.isSampling = 0;
-        Serial.println(cmd);
-        //send LOW to digital pin.
-
-    } else if(cmd == UPDATE_MOTOR){
-        Serial.println(cmd);
-        int* tval = (int*)val;
-        Serial.println(*tval);
+    } else if(strcmp(cmd, "U")){
+        //Serial.println(cmd);
+        //int* tval = (int*)val;
+        //Serial.println(*(float*)val);
         //send value to digital pin? 
     }
-    
+
     return 0;  
 }
 
 
 void tests()
 {
-
+    float a = 13.13;
+    execute_cmd((void*)&a, "U");
+    while(1);
 }
 
 float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double num)
@@ -215,62 +220,78 @@ float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double nu
     return *Sum / len;
 }
 
+#define MAP(x, a, b, c, d) ((x - a) / (b - a) * (d - c) + c)
+
+void update_sensors()        
+{
+    uint16_t gainfactor     = 1;  // 1 is
+    int iso_nozzle_diameter = 2; //2 is place holder
+    double tempC            = 1.0; //1 is place holder for equation
+    double updraft_v        = g_updraftVel * 0.018 ; //velocity in m/s
+    double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
+                                  * (273.15 + tempC) / (273.15 + 21.11);
+    
+    /**store vel and flow in ring buffer.
+    */
+    if(g_buffer_index == BUF_SIZE){
+        g_buffer_index = 0;  
+    }
+    
+    g_updraftVelBuf[g_buffer_index] = updraft_v;
+    g_inlineFlowBuf[g_buffer_index] = inline_f;
+    
+    log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_sum, g_buffer_index,BUF_SIZE, updraft_v);
+    log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, g_buffer_index,BUF_SIZE, inline_f );
+    log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
+    log_pck.tempC           = tempC;
+
+    g_buffer_index++;
+    
+    if(log_pck.isSampling){
+        log_pck.motorcommand   += (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
+        //output command to motor
+        execute_cmd(&log_pck.motorcommand, "U");
+    } else{
+        log_pck.motorcommand    = 0;
+        //output command to motor
+        execute_cmd(&log_pck.motorcommand, "S");
+    }
+
+}
+
+void parse_stringcmd(char* buf)
+{
+    char cmd[10] = {};
+    int i = -1;
+    sscanf(buf, "%s %d", cmd, &i);
+    execute_cmd((void *)&i, (char const*)cmd);
+
+}
+
 void loop()
 {
 
-    if(g_log_flag){  
-        
-        g_log_flag = 0;
-        log_info(&log_pck);
-        send_pkt(&log_pck);  
-    }
-//    if(g_request_flag){ // flag to parse data sent by another arduino.  
-//                          //This flag may change to using built in Serial flag
-//        g_request_flag = 0;
-//        
-//    }              
-    if(g_update_flag){
-      
-        g_update_flag = 0;
-        
-#define MAP(x, a, b, c, d) ((x - a) / (b - a) * (d - c) + c)
-
-        { /**<-----This set of braces (or block) is for scoping purposes. Which
-                   determines the lifetime of variables when the block is exited.
-          */
-            uint16_t gainfactor     = 1;  // 1 is
-            int iso_nozzle_diameter = 2; //2 is place holder
-            double tempC            = 1.0; //1 is place holder for equation
-            double updraft_v        = g_updraftVel * 0.018 ; //velocity in m/s
-            double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
-                                          * (273.15 + tempC) / (273.15 + 21.11);
-
-            /**store vel and flow in ring buffer.
-               subtract 1 from array index because g_buffer_index
-               is incremented in the interrupt function after
-               reading analog value.
-            */
-            int pos = g_buffer_index - 1;
-            
-            g_updraftVelBuf[pos] = updraft_v;
-            g_inlineFlowBuf[pos] = inline_f;
-            
-            log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_sum, pos,BUF_SIZE, updraft_v);
-            log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, pos,BUF_SIZE, inline_f );
-            log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
-            log_pck.tempC           = tempC;
-            
-            if(log_pck.isSampling){
-                log_pck.motorcommand   += (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
-                //output command to motor
-                execute_cmd(&log_pck.motorcommand, UPDATE_MOTOR);
-            } else
-                log_pck.motorcommand    = 0;
-                //output command to motor
-                execute_cmd(NULL, FLOW_OFF);
-
-       }
-
-    }
-//      tests();
+//    while(!g_update_flag && Serial.available() == 0 );
+//
+//    if(Serial.available() > 0){
+//        if(get_stringcmd()){
+//            Serial.print("cmd: ");
+//            Serial.println(g_cmdBuffer);
+//            parse_stringcmd(g_cmdBuffer);  
+//        }
+//    }
+//    if(g_update_flag){
+//      
+//        g_update_flag = 0;
+//        update_sensors();
+//
+//        if(g_cycles >= PERIOD_LOGDATA){
+//          
+//                g_cycles = 0;
+//                log_info(&log_pck);
+//                send_pkt(&log_pck);
+//        }
+//
+//    }
+      tests();
 }
