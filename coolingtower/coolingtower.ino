@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 09-01-18
+ * * Last Modified: 09-05-18
 */
 
 #include <SPI.h>
@@ -22,7 +22,6 @@ typedef struct Log_Pck_Struct {
 #define BUF_SIZE 6
 
 /**Global Variables*/
-enum Control{FLOW_ON, FLOW_OFF, UPDATE_MOTOR};      /**LIST OF COMMANDS */
 static char g_cmdBuffer[64]                   = {};
 static char g_cmdIndex                        =  0;
 static float g_updraftVelBuf[BUF_SIZE]        = {};
@@ -188,30 +187,26 @@ static uint8_t get_stringcmd()
 
 static int execute_cmd(void* val, char const* cmd)
 {
-    Serial.print("cmd: ");
-    Serial.print(cmd);
     if(strcmp(cmd, "S")==0){
         log_pck.isSampling = *(int*)val;
-        Serial.println(log_pck.isSampling);
         //send value to digital pin?
         
-    } else if(strcmp(cmd, "U")){
-        //Serial.println(cmd);
-        //int* tval = (int*)val;
-        //Serial.println(*(float*)val);
+    } else if(strcmp(cmd, "U")==0){
+        int tval = *(int*)val;
         //send value to digital pin? 
     }
-
     return 0;  
 }
 
-
-void tests()
+void parse_stringcmd(char* buf)
 {
-    float a = 13.13;
-    execute_cmd((void*)&a, "U");
-    while(1);
+    char cmd[2] = {};
+    int i = -1;
+    sscanf(buf, "%s %d", cmd, &i);
+    execute_cmd(&i, (char const*)cmd);
+
 }
+
 
 float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double num)
 {
@@ -259,39 +254,38 @@ void update_sensors()
 
 }
 
-void parse_stringcmd(char* buf)
+void tests()
 {
-    char cmd[10] = {};
-    int i = -1;
-    sscanf(buf, "%s %d", cmd, &i);
-    execute_cmd((void *)&i, (char const*)cmd);
-
+//    float a = 13.13;
+//    execute_cmd(&a, "U");
+//    while(1);
 }
+
 
 void loop()
 {
 
-//    while(!g_update_flag && Serial.available() == 0 );
-//
-//    if(Serial.available() > 0){
-//        if(get_stringcmd()){
+    while(!g_update_flag && Serial.available() == 0 );
+
+    if(Serial.available() > 0){
+        if(get_stringcmd()){
 //            Serial.print("cmd: ");
 //            Serial.println(g_cmdBuffer);
-//            parse_stringcmd(g_cmdBuffer);  
-//        }
-//    }
-//    if(g_update_flag){
-//      
-//        g_update_flag = 0;
-//        update_sensors();
-//
-//        if(g_cycles >= PERIOD_LOGDATA){
-//          
-//                g_cycles = 0;
-//                log_info(&log_pck);
-//                send_pkt(&log_pck);
-//        }
-//
-//    }
-      tests();
+            parse_stringcmd(g_cmdBuffer);  
+        }
+    }
+    if(g_update_flag){
+      
+        g_update_flag = 0;
+        update_sensors();
+
+        if(g_cycles >= PERIOD_LOGDATA){
+          
+                g_cycles = 0;
+                log_info(&log_pck);
+                send_pkt(&log_pck);
+        }
+
+    }
+//      tests();
 }
