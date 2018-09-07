@@ -22,7 +22,7 @@ typedef struct Log_Pck_Struct {
 #define BUF_SIZE 6
 
 /**Global Variables*/
-static char g_cmdBuffer[64]                   = {};
+static char g_cmdBuffer[32]                   = {};
 static char g_cmdIndex                        =  0;
 static float g_updraftVelBuf[BUF_SIZE]        = {};
 static float g_inlineFlowBuf[BUF_SIZE]        = {};
@@ -119,7 +119,7 @@ static int log_info(Log_Pck_Struct *pck)
     if (dataFile) {
         dataFile.print("Sampling = ");
         dataFile.print(pck->isSampling);
-        dataFile.print(", rh = ");
+        dataFile.print(", rh (%)= ");
         dataFile.print(pck->rh, 4);
         dataFile.print(", tempC = ");
         dataFile.print(pck->tempC, 2);
@@ -128,7 +128,7 @@ static int log_info(Log_Pck_Struct *pck)
         dataFile.print(", inlineFlow = ");
         dataFile.print(pck->inlineFlow, 4);
         dataFile.print(", v_nozzle = ");
-        dataFile.println(pck->nozzleVel, 4);
+        dataFile.print(pck->nozzleVel, 4);
         dataFile.print(", motorcmd = ");
         dataFile.println(pck->motorcommand);
         dataFile.close();
@@ -139,10 +139,13 @@ static int log_info(Log_Pck_Struct *pck)
     }
 
 
-    // print to the serial port too:
+    /**print to the serial port too:
+     * if wireless sd shield used, then the following 
+     * will send through the xbee.
+     */
     Serial.print("Sampling = ");
     Serial.print(pck->isSampling);
-    Serial.print(", rh = ");
+    Serial.print(", rh = (%)");
     Serial.print(pck->rh, 4);
     Serial.print(", tempC = ");
     Serial.print(pck->tempC, 2);
@@ -158,7 +161,12 @@ static int log_info(Log_Pck_Struct *pck)
     return ret;
 }
 
-/**send via wireless signal*/
+/**send via wireless signal
+ * currently not used because we are 
+ * using sd wireless shield which will
+ * send packet through arduino's default
+ * serial ports.
+ */
 static int send_pkt(Log_Pck_Struct *pck) 
 {
     return 0;
@@ -220,8 +228,8 @@ float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double nu
 void update_sensors()        
 {
     uint16_t gainfactor     = 1;  // 1 is
-    int iso_nozzle_diameter = 2; //2 is place holder
-    double tempC            = 1.0; //1 is place holder for equation
+    int iso_nozzle_diameter = 2;  //2 is place holder
+    float tempC             = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
     double updraft_v        = g_updraftVel * 0.018 ; //velocity in m/s
     double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
                                   * (273.15 + tempC) / (273.15 + 21.11);
@@ -239,6 +247,7 @@ void update_sensors()
     log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, g_buffer_index,BUF_SIZE, inline_f );
     log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
     log_pck.tempC           = tempC;
+    log_pck.rh              = tempC;
 
     g_buffer_index++;
     
@@ -256,9 +265,7 @@ void update_sensors()
 
 void tests()
 {
-//    float a = 13.13;
-//    execute_cmd(&a, "U");
-//    while(1);
+    while(1);
 }
 
 
