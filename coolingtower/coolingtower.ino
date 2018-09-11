@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 09-05-18
+ * * Last Modified: 09-11-18
 */
 
 #include <SPI.h>
@@ -17,8 +17,8 @@ typedef struct Log_Pck_Struct {
     bool isSampling;
     float rh;
     float tempC;
-    float updraftVel;
-    float inlineFlow;
+    double updraftVel;
+    double inlineFlow;
     float nozzleVel;
     int motorcommand;
 } Log_Pck_Struct;
@@ -90,7 +90,7 @@ ISR(TIMER1_OVF_vect)
 {
 //#define PERIOD_UPDATE_SENSORS 1
                            
-#define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
+#define PERIOD_LOGDATA 2  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
     g_updraft   = ads.readADC_Differential_0_1();
@@ -224,7 +224,7 @@ void parse_stringcmd(char* buf)
 /**
  * Compute moving average and add sample to ring buffer
 */
-float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double num)
+double movingAverage(double *Arr, float *Sum, volatile int pos, int len, double num)
 {
     *Sum     = *Sum - Arr[pos] + num;
     Arr[pos] = num;
