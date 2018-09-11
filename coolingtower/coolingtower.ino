@@ -6,6 +6,10 @@
 
 #include <SPI.h>
 #include <SD.h>
+#include <Wire.h>
+#include <Adafruit_ADS1015.h>
+
+Adafruit_ADS1115 ads;
 //#include "RTClib.h"
 
 
@@ -24,12 +28,12 @@ typedef struct Log_Pck_Struct {
 /**Global Variables*/
 static char g_cmdBuffer[32]                   = {};
 static char g_cmdIndex                        =  0;
-static float g_updraftVelBuf[BUF_SIZE]        = {};
-static float g_inlineFlowBuf[BUF_SIZE]        = {};
+static double g_updraftVelBuf[BUF_SIZE]       = {};
+static double g_inlineFlowBuf[BUF_SIZE]       = {};
 static Log_Pck_Struct log_pck                 = {};
 
 /**Variables used by interrupts*/
-static volatile int g_updraftVel;
+static volatile int g_updraft;
 static volatile int g_inlineFlow;
 static volatile int g_tempC;
 
@@ -64,6 +68,8 @@ void setup()
         Serial.println("Wiring is correct and a card is present.");
     }
 
+    ads.setGain(GAIN_ONE);
+    ads.begin();
 
     /** initialize timer1 - 16 bit (65536) */
     noInterrupts();                            // disable all interrupts
@@ -83,11 +89,11 @@ void setup()
 ISR(TIMER1_OVF_vect)        
 {
 //#define PERIOD_UPDATE_SENSORS 1
-                              
+                           
 #define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
-    //g_updraftVel = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Updraft Vel
+    g_updraft   = ads.readADC_Differential_0_1();
     //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
     //g_tempC      = analogreadfunctiontobecoded;
  
@@ -215,7 +221,9 @@ void parse_stringcmd(char* buf)
 
 }
 
-
+/**
+ * Compute moving average and add sample to ring buffer
+*/
 float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double num)
 {
     *Sum     = *Sum - Arr[pos] + num;
@@ -227,10 +235,12 @@ float movingAverage(float *Arr, float *Sum, volatile int pos, int len, double nu
 
 void update_sensors()        
 {
-    uint16_t gainfactor     = 1;  // 1 is
-    int iso_nozzle_diameter = 2;  //2 is place holder
+    float MULTIPLIER        = 0.125f;  /**< ADS115 @ +/- 4.096V gain (16-bit results)*/
+    double MPH_COEFFICIENT  = 0.04025; 
+    uint16_t gainfactor     = 1;       // 1 is placeholder
+    int iso_nozzle_diameter = 2;       // 2 is place holder
     float tempC             = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
-    double updraft_v        = g_updraftVel * 0.018 ; //velocity in m/s
+    double updraft_v        = g_updraft * MULTIPLIER * MPH_COEFFICIENT ; //velocity in mph
     double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
                                   * (273.15 + tempC) / (273.15 + 21.11);
     
@@ -239,9 +249,6 @@ void update_sensors()
     if(g_buffer_index == BUF_SIZE){
         g_buffer_index = 0;  
     }
-    
-    g_updraftVelBuf[g_buffer_index] = updraft_v;
-    g_inlineFlowBuf[g_buffer_index] = inline_f;
     
     log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_sum, g_buffer_index,BUF_SIZE, updraft_v);
     log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, g_buffer_index,BUF_SIZE, inline_f );
