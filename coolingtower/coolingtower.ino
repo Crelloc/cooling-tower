@@ -33,7 +33,6 @@ static double g_inlineFlowBuf[BUF_SIZE]       = {};
 static Log_Pck_Struct log_pck                 = {};
 
 /**Variables used by interrupts*/
-static volatile int g_updraft;
 static volatile int g_inlineFlow;
 static volatile int g_tempC;
 
@@ -93,7 +92,6 @@ ISR(TIMER1_OVF_vect)
 #define PERIOD_LOGDATA 2  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
-    g_updraft   = ads.readADC_Differential_0_1();
     //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
     //g_tempC      = analogreadfunctiontobecoded;
  
@@ -240,7 +238,7 @@ void update_sensors()
     uint16_t gainfactor     = 1;       // 1 is placeholder
     int iso_nozzle_diameter = 2;       // 2 is place holder
     float tempC             = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
-    double updraft_v        = g_updraft * MULTIPLIER * MPH_COEFFICIENT ; //velocity in mph
+    double updraft_v        = ads.readADC_Differential_0_1() * MULTIPLIER * MPH_COEFFICIENT ; //velocity in mph
     double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
                                   * (273.15 + tempC) / (273.15 + 21.11);
     
