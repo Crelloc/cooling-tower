@@ -9,7 +9,7 @@
 #include <Wire.h>
 #include <Adafruit_ADS1015.h>
 
-Adafruit_ADS1115 ads;
+static Adafruit_ADS1115 ads;
 //#include "RTClib.h"
 
 
@@ -89,7 +89,7 @@ ISR(TIMER1_OVF_vect)
 {
 //#define PERIOD_UPDATE_SENSORS 1
                            
-#define PERIOD_LOGDATA 2  /** Every 10 cycles set flag to log data and send over Serial*/
+#define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
 
     //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
@@ -199,7 +199,7 @@ static uint8_t get_stringcmd()
 
 static int execute_cmd(void* val, char const* cmd)
 {
-    if(strcmp(cmd, "S")==0){
+    if(strcmp(cmd, "SA")==0){
         log_pck.isSampling = *(int*)val;
         //send value to digital pin?
         
@@ -263,7 +263,7 @@ void update_sensors()
     } else{
         log_pck.motorcommand    = 0;
         //output command to motor
-        execute_cmd(&log_pck.motorcommand, "S");
+        execute_cmd(&log_pck.motorcommand, "U");
     }
 
 }
