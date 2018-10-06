@@ -287,7 +287,8 @@ void update_sensors()
     g_buffer_index++;
     
     if(log_pck.isSampling){
-        int error = (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
+        int error = log_pck.motorcommand;
+        error    += (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
         if(error > 255){
           log_pck.motorcommand = 255;
         } else if(error < 0){
