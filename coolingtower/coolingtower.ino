@@ -232,12 +232,11 @@ static uint8_t get_stringcmd()
 static int execute_cmd(void* val, char const* cmd)
 {
     if(strcmp(cmd, "SA")==0){
-        log_pck.isSampling = *(int*)val;
+        log_pck.isSampling = *(bool*)val;
         //send value to digital pin?
         
     } else if(strcmp(cmd, "U")==0){
-        int tval = *(int*)val;
-        //send value to digital pin? 
+        i2c_writeRegisterByte (0x2c, 16, *(uint8_t*)val);  //device address, instruction byte, pot value 
     }
     return 0;  
 }
@@ -288,7 +287,15 @@ void update_sensors()
     g_buffer_index++;
     
     if(log_pck.isSampling){
-        log_pck.motorcommand   += (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
+        int error = (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
+        if(error > 255){
+          log_pck.motorcommand = 255;
+        } else if(error < 0){
+            //slow down motors
+            log_pck.motorcommand -= 10;
+            if(log_pck.motorcommand < 0)
+              log_pck.motorcommand = 0;
+        }
         //output command to motor
         execute_cmd(&log_pck.motorcommand, "U");
     } else{
