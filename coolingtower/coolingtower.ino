@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 09-11-18
+ * * Last Modified: 10-05-18
 */
 
 #include <SPI.h>
@@ -99,6 +99,38 @@ ISR(TIMER1_OVF_vect)
     g_update_flag = 1;
    
 }
+
+byte i2c_readRegisterByte (uint8_t deviceAddress, uint8_t registerAddress)
+{
+    byte registerData;
+    Wire.beginTransmission(deviceAddress);    // set sensor target
+    Wire.write(registerAddress);              // set memory pointer
+    Wire.endTransmission();
+       
+    Wire.requestFrom( deviceAddress, (uint8_t)1);     // request one byte
+    registerData = Wire.read(); 
+                                              // you could add more data reads here if you request more than one byte
+    return registerData;                      // the returned byte from this function is the content from registerAddress
+}
+
+byte i2c_writeRegisterByte (uint8_t deviceAddress, uint8_t registerAddress, uint8_t newRegisterByte)
+{
+    byte result;
+    Wire.beginTransmission(deviceAddress); 
+    Wire.write(registerAddress);  
+    Wire.write(newRegisterByte); 
+    result = Wire.endTransmission();    // Wire.endTransmission(); returns 0 if write operation was successful
+                                        // delete this comment – it was only needed for blog layout.
+    //delay(5);  // optional:  some sensors need time to write the new data, but most do not. Check Datasheet.
+    if(result > 0){
+      Serial.print("FAIL in I2C register write! Error code:");
+      Serial.println(result);
+    }    
+    
+    return result;    // the returned value from this function could be tested as shown above
+    //it’s a good idea to check the return from Wire.endTransmission() the first time you write to a sensor 
+    //if the first test is okay (result is 0), then I2C sensor coms are working and you don’t have to do extra tests
+} 
 
 //static void sprintf_f(float fval, char *c)
 //{
@@ -216,7 +248,6 @@ void parse_stringcmd(char* buf)
     int i = -1;
     sscanf(buf, "%s %d", cmd, &i);
     execute_cmd(&i, (char const*)cmd);
-
 }
 
 /**
