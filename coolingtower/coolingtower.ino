@@ -1,14 +1,16 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 10-05-18
+ * * Last Modified: 10-08-18
 */
 
 #include <SPI.h>
 #include <SD.h>
 #include <Wire.h>
 #include <Adafruit_ADS1015.h>
+#include <Adafruit_MCP23017.h>
 
+static Adafruit_MCP23017 mcp1;
 static Adafruit_ADS1115 ads;
 //#include "RTClib.h"
 
@@ -50,7 +52,9 @@ void setup()
     }
     Serial.begin(9600);
 
-    pinMode(LED_BUILTIN, OUTPUT);                //temporary digital output to motor pin.
+    mcp1.begin(1);                               // use default address 0; used for rugged shield
+    mcp1.pinMode(0, OUTPUT);                     //output 0 from rugged shield will connect to enable pin on motor
+    
     Serial.print("\nInitializing SD card...");
                                                  // make sure that the default chip select pin is set to
                                                  // output, even if you don't use it:
@@ -93,7 +97,6 @@ ISR(TIMER1_OVF_vect)
     TCNT1 = 49911;
 
     //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
-    //g_tempC      = analogreadfunctiontobecoded;
  
     ++g_cycles;               /** number of seconds elapsed*/
     g_update_flag = 1;
@@ -232,8 +235,8 @@ static uint8_t get_stringcmd()
 static int execute_cmd(void* val, char const* cmd)
 {
     if(strcmp(cmd, "SA")==0){
-        log_pck.isSampling = *(bool*)val;
-        //send value to digital pin?
+        log_pck.isSampling = *(int*)val;
+        mcp1.digitalWrite(0, *(int*)val);                        
         
     } else if(strcmp(cmd, "U")==0){
         i2c_writeRegisterByte (0x2c, 16, *(uint8_t*)val);  //device address, instruction byte, pot value 
@@ -299,10 +302,9 @@ void update_sensors()
         }
         //output command to motor
         execute_cmd(&log_pck.motorcommand, "U");
-    } else{
+    } else{//make sure motors are off
         log_pck.motorcommand    = 0;
-        //output command to motor
-        execute_cmd(&log_pck.motorcommand, "U");
+        execute_cmd(&log_pck.motorcommand, "SA");
     }
 
 }
