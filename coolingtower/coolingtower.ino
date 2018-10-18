@@ -290,20 +290,20 @@ void update_sensors()
     g_buffer_index++;
     
     if(log_pck.isSampling){
-        int error = log_pck.motorcommand;
-        error    += (int)(gainfactor*(log_pck.nozzleVel-log_pck.updraftVel));
-        if(error > 255){
-          log_pck.motorcommand = 255;
-        } else if(error < 0){
+        int error = gainfactor*(log_pck.nozzleVel-log_pck.updraftVel);
+        if(error < 0){
             //slow down motors
             log_pck.motorcommand -= 10;
             if(log_pck.motorcommand < 0)
-              log_pck.motorcommand = 0;
-        }
+                log_pck.motorcommand = 0;
+        } else if(error+log_pck.motorcommand > 255){
+            log_pck.motorcommand = 255;
+        } else
+            log_pck.motorcommand+=error; 
         //output command to motor
         execute_cmd(&log_pck.motorcommand, "U");
-    } else{//make sure motors are off
-        log_pck.motorcommand    = 0;
+    } else {//make sure motors are off
+        log_pck.motorcommand = 0;
         execute_cmd(&log_pck.motorcommand, "SA");
     }
 
