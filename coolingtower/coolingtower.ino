@@ -1,18 +1,18 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 10-08-18
+ * * Last Modified: 10-29-18
 */
 
 #include <SPI.h>
 #include <SD.h>
 #include <Wire.h>
+#include "RTClib.h"
 #include <Adafruit_ADS1015.h>
 #include <Adafruit_MCP23017.h>
 
 static Adafruit_MCP23017 mcp1;
 static Adafruit_ADS1115 ads;
-//#include "RTClib.h"
 
 
 typedef struct Log_Pck_Struct {
@@ -33,6 +33,7 @@ static char g_cmdIndex                        =  0;
 static double g_updraftVelBuf[BUF_SIZE]       = {};
 static double g_inlineFlowBuf[BUF_SIZE]       = {};
 static Log_Pck_Struct log_pck                 = {};
+RTC_PCF8523      rtc;
 
 /**Variables used by interrupts*/
 static volatile int g_inlineFlow;
@@ -52,24 +53,42 @@ void setup()
     }
     Serial.begin(9600);
 
+    //rugged industrial shield section below
     mcp1.begin(1);                               // use default address 0; used for rugged shield
     mcp1.pinMode(0, OUTPUT);                     //output 0 from rugged shield will connect to enable pin on motor
     
-    Serial.print("\nInitializing SD card...");
+    //RTC section below
+    if (! rtc.begin()) {
+        Serial.println("Couldn't find RTC");
+        while (1);
+    }
+    if (! rtc.initialized()) {
+        Serial.println("RTC is NOT running!");
+        // following line sets the RTC to the date & time this sketch was compiled
+        // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        // This line sets the RTC with an explicit date & time, for example to set
+        // January 21, 2014 at 3am you would call:
+        // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+    }
+    //SD Card section below
+    {
+      Serial.print("\nInitializing SD card...");
                                                  // make sure that the default chip select pin is set to
                                                  // output, even if you don't use it:
-    pinMode(4, OUTPUT);                          /**Wireless SD shield uses pin 4 as chipselect*/
-                                                 // we'll use the initialization code from the utility libraries
-                                                 // since we're just testing if the card is working!
-    if (!SD.begin(4)) {
-        Serial.println("initialization failed. Things to check:");
-        Serial.println("* is a card inserted?");
-        Serial.println("* is your wiring correct?");
-        Serial.println("* did you change the chipSelect pin to match your shield or module?");
-
-    } else {
-        Serial.println("Wiring is correct and a card is present.");
-    }
+      pinMode(10, OUTPUT);                          /**Wireless SD shield uses pin 4 as chipselect, 
+                                                        Datalogging shield uses pin 10 as chipselect*/
+                                                   // we'll use the initialization code from the utility libraries
+                                                   // since we're just testing if the card is working!
+      if (!SD.begin(10)) {
+          Serial.println("initialization failed. Things to check:");
+          Serial.println("* is a card inserted?");
+          Serial.println("* is your wiring correct?");
+          Serial.println("* did you change the chipSelect pin to match your shield or module?");
+  
+      } else {
+          Serial.println("Wiring is correct and a card is present.");
+      }
+    } 
 
     ads.setGain(GAIN_ONE);
     ads.begin();
@@ -82,7 +101,6 @@ void setup()
     TCCR1B |= ((1 << CS12)| (1 << CS10)) ;     // prescaler 
     TIMSK1 |= (1 << TOIE1);                    // enable timer overflow interrupt
     interrupts();                              // enable all interrupts
-
 }
 
 /** Timer frequency: 1 cycle per second
@@ -152,23 +170,40 @@ byte i2c_writeRegisterByte (uint8_t deviceAddress, uint8_t registerAddress, uint
 static int log_info(Log_Pck_Struct *pck) 
 {
     int ret = 0;
+    static bool initialized = 0;
     File dataFile = SD.open("datalog.txt", FILE_WRITE);
+    DateTime now = rtc.now();
 
     // if the file is available, write to it:
     if (dataFile) {
-        dataFile.print("Sampling = ");
+        if (!initialized) {
+           initialized = true;
+           dataFile.println("time, sampling, rh(%), tempC, v_updraft, inlineFlow, v_nozzle, motorcmd");
+        }
+        dataFile.print(now.year(), DEC);
+        dataFile.print('/');
+        dataFile.print(now.month(), DEC);
+        dataFile.print('/');
+        dataFile.print(now.day(), DEC);
+        dataFile.print(' ');
+        dataFile.print(now.hour(), DEC);
+        dataFile.print(':');
+        dataFile.print(now.minute(), DEC);
+        dataFile.print(':');
+        dataFile.print(now.second(), DEC);
+        dataFile.print(", ");
         dataFile.print(pck->isSampling);
-        dataFile.print(", rh (%)= ");
+        dataFile.print(", ");
         dataFile.print(pck->rh, 4);
-        dataFile.print(", tempC = ");
+        dataFile.print(", ");
         dataFile.print(pck->tempC, 2);
-        dataFile.print(", v_updraft = ");
+        dataFile.print(", ");
         dataFile.print(pck->updraftVel, 4);
-        dataFile.print(", inlineFlow = ");
+        dataFile.print(", ");
         dataFile.print(pck->inlineFlow, 4);
-        dataFile.print(", v_nozzle = ");
+        dataFile.print(", ");
         dataFile.print(pck->nozzleVel, 4);
-        dataFile.print(", motorcmd = ");
+        dataFile.print(", ");
         dataFile.println(pck->motorcommand);
         dataFile.close();
 
@@ -182,7 +217,19 @@ static int log_info(Log_Pck_Struct *pck)
      * if wireless sd shield used, then the following 
      * will send through the xbee.
      */
-    Serial.print("Sampling = ");
+    Serial.print("Time = ");
+    Serial.print(now.year(), DEC);
+    Serial.print('/');
+    Serial.print(now.month(), DEC);
+    Serial.print('/');
+    Serial.print(now.day(), DEC);
+    Serial.print(' ');
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    Serial.print(now.minute(), DEC);
+    Serial.print(':');
+    Serial.print(now.second(), DEC);
+    Serial.print(", Sampling = ");
     Serial.print(pck->isSampling);
     Serial.print(", rh = (%)");
     Serial.print(pck->rh, 4);
@@ -295,15 +342,15 @@ void update_sensors()
             //slow down motors
             log_pck.motorcommand -= 10;
             if(log_pck.motorcommand < 0)
-                log_pck.motorcommand = 0;
-        } else if(error+log_pck.motorcommand > 255){
+              log_pck.motorcommand = 0;
+        }else if(error+log_pck.motorcommand > 255){
             log_pck.motorcommand = 255;
         } else
             log_pck.motorcommand+=error; 
         //output command to motor
         execute_cmd(&log_pck.motorcommand, "U");
-    } else {//make sure motors are off
-        log_pck.motorcommand = 0;
+    } else{//make sure motors are off
+        log_pck.motorcommand    = 0;
         execute_cmd(&log_pck.motorcommand, "SA");
     }
 
