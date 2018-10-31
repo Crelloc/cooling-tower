@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 10-29-18
+ * * Last Modified: 10-30-18
 */
 
 #include <SPI.h>
@@ -12,7 +12,8 @@
 #include <Adafruit_MCP23017.h>
 
 static Adafruit_MCP23017 mcp1;
-static Adafruit_ADS1115 ads;
+static Adafruit_ADS1115 ads(0x4A);
+static Adafruit_ADS1015 ads_i(0x48);     /* Use this for the 12-bit version, 73 if the jumper is shorted) */
 
 
 typedef struct Log_Pck_Struct {
@@ -36,9 +37,7 @@ static Log_Pck_Struct log_pck                 = {};
 RTC_PCF8523      rtc;
 
 /**Variables used by interrupts*/
-static volatile int g_inlineFlow;
 static volatile int g_tempC;
-
 static volatile uint8_t g_buffer_index        = 0;
 static volatile int   g_cycles                = 0;  /**< # of cycles for timer1 */
 static volatile bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
@@ -91,8 +90,10 @@ void setup()
     } 
 
     ads.setGain(GAIN_ONE);
+    ads_i.setGain(GAIN_ONE);
     ads.begin();
-
+    ads_i.begin();
+    
     /** initialize timer1 - 16 bit (65536) */
     noInterrupts();                            // disable all interrupts
     TCCR1A  = 0;
@@ -111,11 +112,8 @@ ISR(TIMER1_OVF_vect)
 {
 //#define PERIOD_UPDATE_SENSORS 1
                            
-#define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
+#define PERIOD_LOGDATA 1  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
-
-    //g_inlineFlow = analogreadfunctiontobecoded; //Read analog voltage in mV using ADC. Expect 0-10VDC signal. Inline flow
- 
     ++g_cycles;               /** number of seconds elapsed*/
     g_update_flag = 1;
    
@@ -319,9 +317,9 @@ void update_sensors()
     int iso_nozzle_diameter = 2;       // 2 is place holder
     float tempC             = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
     double updraft_v        = ads.readADC_Differential_0_1() * MULTIPLIER * MPH_COEFFICIENT ; //velocity in mph
-    double inline_f         = MAP(g_inlineFlow, 0.0, 10000.0, 0.0, 200.0)
+    double inline_f         = MAP(ads_i.readADC_SingleEnded(0)*2.0f*2, 0.0, 10000.0, 0.0, 200.0)
                                   * (273.15 + tempC) / (273.15 + 21.11);
-    
+
     /**store vel and flow in ring buffer.
     */
     if(g_buffer_index == BUF_SIZE){
