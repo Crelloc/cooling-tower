@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 10-30-18
+ * * Last Modified: 10-31-18
 */
 
 #include <SPI.h>
@@ -150,24 +150,29 @@ byte i2c_writeRegisterByte (uint8_t deviceAddress, uint8_t registerAddress, uint
     //it’s a good idea to check the return from Wire.endTransmission() the first time you write to a sensor 
     //if the first test is okay (result is 0), then I2C sensor coms are working and you don’t have to do extra tests
 } 
+/** For zero padding: 
+* 
+* Format: XXX.XXXX0
+* ex: 123.1234 --> 123.12340
+*     23.13    --> 023.13000
+*/
+static void sprintf_f(float fval, char *c)
+{
+    char *tmpSign = (fval < 0) ? "-"   : "";
+    float tmpVal  = (fval < 0) ? -fval : fval;
 
-//static void sprintf_f(float fval, char *c)
-//{
-//    char *tmpSign = (fval < 0) ? "-"   : "";
-//    float tmpVal  = (fval < 0) ? -fval : fval;
-//
-//    int tmpInt1   = tmpVal;
-//    float tmpFrac = tmpVal - tmpInt1;
-//    int tmpInt2 = trunc(tmpFrac * 10000);
-//
-//    sprintf(c, "fval = %s%d.%04d", tmpSign, tmpInt1, tmpInt2);
-//   
-//}
+    int tmpInt1   = tmpVal;
+    float tmpFrac = tmpVal - tmpInt1;
+    int tmpInt2 = trunc(tmpFrac * 10000);
 
+    sprintf(c, "%s%03d.%04d0", tmpSign, tmpInt1, tmpInt2);
+   
+}
 /**will log to sd card*/
 static int log_info(Log_Pck_Struct *pck) 
 {
     int ret = 0;
+    char buf[10];
     static bool initialized = 0;
     File dataFile = SD.open("datalog.txt", FILE_WRITE);
     DateTime now = rtc.now();
@@ -218,30 +223,41 @@ static int log_info(Log_Pck_Struct *pck)
     Serial.print("Time = ");
     Serial.print(now.year(), DEC);
     Serial.print('/');
-    Serial.print(now.month(), DEC);
+    sprintf(buf, "%02d", now.month());
+    Serial.print(buf);
     Serial.print('/');
-    Serial.print(now.day(), DEC);
+    sprintf(buf, "%02d", now.day());
+    Serial.print(buf);
     Serial.print(' ');
-    Serial.print(now.hour(), DEC);
+    sprintf(buf, "%02d", now.hour());
+    Serial.print(buf);
     Serial.print(':');
-    Serial.print(now.minute(), DEC);
+    sprintf(buf, "%02d", now.minute());
+    Serial.print(buf);
     Serial.print(':');
-    Serial.print(now.second(), DEC);
+    sprintf(buf, "%02d", now.second());
+    Serial.print(buf);
     Serial.print(", Sampling = ");
     Serial.print(pck->isSampling);
     Serial.print(", rh = (%)");
-    Serial.print(pck->rh, 4);
+    sprintf_f(pck->rh, buf);
+    Serial.print(buf);
     Serial.print(", tempC = ");
-    Serial.print(pck->tempC, 2);
+    sprintf_f(pck->tempC, buf);
+    Serial.print(buf);
     Serial.print(", v_updraft = ");
-    Serial.print(pck->updraftVel, 4);
+    sprintf_f(pck->updraftVel, buf);
+    Serial.print(buf);
     Serial.print(", inlineFlow = ");
-    Serial.print(pck->inlineFlow, 4);
+    sprintf_f(pck->inlineFlow, buf);
+    Serial.print(buf);
     Serial.print(", v_nozzle = ");
-    Serial.print(pck->nozzleVel, 4);
+    sprintf_f(pck->nozzleVel, buf);
+    Serial.print(buf);
     Serial.print(", motorcmd = ");
-    Serial.println(pck->motorcommand);
-    
+    sprintf(buf, "%03d", pck->motorcommand);
+    Serial.print(buf);
+    Serial.println();
     return ret;
 }
 
@@ -356,7 +372,7 @@ void update_sensors()
 
 void tests()
 {
-    while(1);
+//    while(1);
 }
 
 
