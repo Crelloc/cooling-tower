@@ -112,7 +112,7 @@ ISR(TIMER1_OVF_vect)
 {
 //#define PERIOD_UPDATE_SENSORS 1
                            
-#define PERIOD_LOGDATA 1  /** Every 10 cycles set flag to log data and send over Serial*/
+#define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
     TCNT1 = 49911;
     ++g_cycles;               /** number of seconds elapsed*/
     g_update_flag = 1;
