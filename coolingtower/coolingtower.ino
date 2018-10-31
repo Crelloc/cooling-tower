@@ -39,7 +39,8 @@ RTC_PCF8523      rtc;
 /**Variables used by interrupts*/
 static volatile int g_tempC;
 static volatile uint8_t g_buffer_index        = 0;
-static volatile int   g_cycles                = 0;  /**< # of cycles for timer1 */
+static volatile int   g_Lcycles               = 0;  /**< # of cycles for timer1 */
+static volatile int   g_Scycles               = 0;  /**< # of cycles for timer1 */
 static volatile bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
 static float                           g_sum  = 0;
 
@@ -112,9 +113,11 @@ ISR(TIMER1_OVF_vect)
 {
 //#define PERIOD_UPDATE_SENSORS 1
                            
-#define PERIOD_LOGDATA 10  /** Every 10 cycles set flag to log data and send over Serial*/
+#define PERIOD_LOGDATA  10  /** Every 10 cycles set flag to log data*/
+#define PERIOD_SENDDATA 10
     TCNT1 = 49911;
-    ++g_cycles;               /** number of seconds elapsed*/
+    ++g_Lcycles;               /** number of seconds elapsed; count for logging data*/
+    ++g_Scycles;               /** number of seconds elapsed; count for sending data*/
     g_update_flag = 1;
    
 }
@@ -327,13 +330,22 @@ double movingAverage(double *Arr, float *Sum, volatile int pos, int len, double 
 
 void update_sensors()        
 {
-    float MULTIPLIER        = 0.125f;  /**< ADS115 @ +/- 4.096V gain (16-bit results)*/
-    double MPH_COEFFICIENT  = 0.04025; 
-    uint16_t gainfactor     = 1;       // 1 is placeholder
-    int iso_nozzle_diameter = 2;       // 2 is place holder
-    float tempC             = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
-    double updraft_v        = ads.readADC_Differential_0_1() * MULTIPLIER * MPH_COEFFICIENT ; //velocity in mph
-    double inline_f         = MAP(ads_i.readADC_SingleEnded(0)*2.0f*2, 0.0, 10000.0, 0.0, 200.0)
+    uint16_t gainfactor        = 1;        // 1 is placeholder
+    float  iso_nozzle_diameter = 3.1;   // isokinetic nozzle diameter in millimeters
+    float tempC                = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
+    /**<
+     * updraft velocity read:
+     * adc value * multiplier for gain 1 of ads1115 * mph coefficient
+     * ADS1115 @ +/- 4.096V gain (16-bit results)
+     * Output is in mph 
+     */
+    double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.04025; //velocity in mph
+    /**< 
+     * inline flow read: 
+     * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
+     * Output is in mV but converted to L/min 
+     */
+    double inline_f  = MAP(ads_i.readADC_SingleEnded(0) * 2.0f * 2, 0.0, 10000.0, 0.0, 200.0) 
                                   * (273.15 + tempC) / (273.15 + 21.11);
 
     /**store vel and flow in ring buffer.
@@ -344,7 +356,7 @@ void update_sensors()
     
     log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_sum, g_buffer_index,BUF_SIZE, updraft_v);
     log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, g_buffer_index,BUF_SIZE, inline_f );
-    log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter>>1),2));
+    log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter/2),2));
     log_pck.tempC           = tempC;
     log_pck.rh              = tempC;
 
@@ -393,11 +405,13 @@ void loop()
         g_update_flag = 0;
         update_sensors();
 
-        if(g_cycles >= PERIOD_LOGDATA){
-          
-                g_cycles = 0;
-                log_info(&log_pck);
-                send_pkt(&log_pck);
+        if(g_Scycles >= PERIOD_SENDDATA){
+            g_Scycles = 0;
+            send_pkt(&log_pck);      
+        }
+        if(g_Lcycles >= PERIOD_LOGDATA){   
+            g_Lcycles = 0;
+            log_info(&log_pck);
         }
 
     }
