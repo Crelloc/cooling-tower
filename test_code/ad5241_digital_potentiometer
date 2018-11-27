@@ -1,0 +1,31 @@
+#include <Wire.h>
+
+int D[2] = {0, 255};
+int motor_on = 0;
+void setup() {
+  while (!Serial) { }
+  Serial.begin(9600);
+  
+  Wire.begin(); // join i2c bus (address optional for master)
+  pinMode(13, OUTPUT);
+  digitalWrite(13, motor_on);    // turn the LED off by making the voltage LOW
+
+}
+
+//byte val = 0;
+
+void loop() {
+  Serial.println(motor_on);
+  digitalWrite(13, motor_on);    // turn the LED off by making the voltage LOW
+
+  //Digital Potentiometer:
+  Wire.beginTransmission(44); // 
+  // device address is specified in datasheet
+  Wire.write(byte(16));            // sends instruction byte
+  Wire.write(D[motor_on]);             // sends potentiometer value byte
+  Wire.endTransmission();     // stop transmitting
+  motor_on = !motor_on;
+
+  delay(10000); //delay 10 seconds
+
+} 
