@@ -12,7 +12,7 @@ RTC_PCF8523               rtc;
 static double             last_error;
 static double             integral = 0;
 static double             derivative;
-static                    motorcommand = 128;
+static int                motorcommand = 128;
 
 byte i2c_writeRegisterByte (uint8_t deviceAddress, uint8_t registerAddress, uint8_t newRegisterByte)
 {
@@ -76,7 +76,7 @@ void logdata(double vel)
 void update_sensors()        
 {
     double        error;
-    double        motorcommand;
+    //double        motorcommand;
     double        nozzleVel; 
     const float   iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
     const float   tempC                = 20.0f; //placeholder
@@ -100,7 +100,7 @@ void update_sensors()
 #define KP 2
 #define KI 1
 #define KD 1
-    motorocommand = motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
+    motorcommand = motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
     //motorcommand = (KP * error) + (KI * integral) + (KD * derivative);
     if(motorcommand > 255) motorcommand = 255;
     else if(motorcommand < 0) motorcommand = 0;
