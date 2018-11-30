@@ -91,7 +91,7 @@ void update_sensors()
     Serial.print(" inline flow = ");
     Serial.println(inline_f);
 
-    nozzleVel    = inline_f/60/1000/ 5*(3.1415*pow((iso_nozzle_diameter/2),2)); //units = m/s
+    nozzleVel    = inline_f/60/1000/ (5*(3.1415*pow((iso_nozzle_diameter/2),2))); //units = m/s
     error        = nozzleVel - updraft_v; //units = m/s
     Serial.print("error = ");
     Serial.println(error);
