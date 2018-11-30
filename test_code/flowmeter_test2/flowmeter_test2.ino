@@ -12,6 +12,7 @@ RTC_PCF8523               rtc;
 static double             last_error;
 static double             integral = 0;
 static double             derivative;
+static                    motorcommand = 128;
 
 byte i2c_writeRegisterByte (uint8_t deviceAddress, uint8_t registerAddress, uint8_t newRegisterByte)
 {
@@ -77,25 +78,30 @@ void update_sensors()
     double        error;
     double        motorcommand;
     double        nozzleVel; 
-    const float   iso_nozzle_diameter = 3.1f;   // isokinetic nozzle diameter in millimeters
+    const float   iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
     const float   tempC                = 20.0f; //placeholder
-    const double  updraft_v           = 10.0; //velocity in mph
+    const double  updraft_v           = 2.0; //velocity in m/s
     /**< 
      * inline flow read: 
      * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
      * Output is in mV but converted to L/min 
      */
     double inline_f = map(ads_i.readADC_SingleEnded(0) * 2.0f * 2, 0.0, 10000.0, 0.0, 200.0) 
-                                  * (273.15 + tempC) / (273.15 + 21.11);
+                                  * (273.15 + tempC) / (273.15 + 21.11); //units = liters/min
+    Serial.print(" inline flow = ");
+    Serial.println(inline_f);
 
-    nozzleVel    = inline_f / 5*(3.1415*pow((iso_nozzle_diameter/2),2));
-    error        = nozzleVel - updraft_v;
+    nozzleVel    = inline_f/60/1000/ 5*(3.1415*pow((iso_nozzle_diameter/2),2)); //units = m/s
+    error        = nozzleVel - updraft_v; //units = m/s
+    Serial.print("error = ");
+    Serial.println(error);
     integral     = integral + error;
     derivative   = error - last_error;
-#define KP 1
+#define KP 2
 #define KI 1
 #define KD 1
-    motorcommand = (KP * error) + (KI * integral) + (KD * derivative);
+    motorocommand = motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
+    //motorcommand = (KP * error) + (KI * integral) + (KD * derivative);
     if(motorcommand > 255) motorcommand = 255;
     else if(motorcommand < 0) motorcommand = 0;
  
@@ -105,6 +111,8 @@ void update_sensors()
 
     //log nozzleVel and time
     logdata(nozzleVel);
+    Serial.print("motor command = ");
+    Serial.println(motorcommand);
 }
 
 void setup() {
