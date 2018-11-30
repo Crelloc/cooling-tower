@@ -80,7 +80,7 @@ void update_sensors()
     double        nozzleVel; 
     const float   iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
     const float   tempC                = 20.0f; //placeholder
-    const double  updraft_v           = 2.0; //velocity in m/s
+    const double  updraft_v           = 15.0; //velocity in m/s
     /**< 
      * inline flow read: 
      * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
@@ -97,7 +97,7 @@ void update_sensors()
     Serial.println(error);
     integral     = integral + error;
     derivative   = error - last_error;
-#define KP 2
+#define KP 1
 #define KI 1
 #define KD 1
     motorcommand = motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
@@ -110,7 +110,7 @@ void update_sensors()
     last_error = error;
 
     //log nozzleVel and time
-    logdata(nozzleVel);
+    //logdata(nozzleVel);
     Serial.print("motor command = ");
     Serial.println(motorcommand);
 }
