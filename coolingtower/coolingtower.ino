@@ -11,9 +11,13 @@
 #include <Adafruit_ADS1015.h>
 #include <Adafruit_MCP23017.h>
 
+#define BUF_SIZE 6
+#define INDUSTRIAL_SHIELD_ADC_ADDRESS   0x48
+#define SCREW_IN_SHIELD_ADC_ADDRESS     0x4A
+#define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
 static Adafruit_MCP23017 mcp1;
-static Adafruit_ADS1115 ads(0x4A);
-static Adafruit_ADS1015 ads_i(0x48);     /* Use this for the 12-bit version, 73 if the jumper is shorted) */
+static Adafruit_ADS1115 ads(SCREW_IN_SHIELD_ADC_ADDRESS);
+static Adafruit_ADS1015 ads_i(INDUSTRIAL_SHIELD_ADC_ADDRESS);     /* Use this for the 12-bit version, 73 if the jumper is shorted) */
 
 
 typedef struct Log_Pck_Struct {
@@ -25,29 +29,26 @@ typedef struct Log_Pck_Struct {
     float nozzleVel;
     int motorcommand;
 } Log_Pck_Struct;
-
-#define BUF_SIZE 6
-
+ 
 /**Global Variables*/
-static char g_cmdBuffer[32]                   = {};
-static char g_cmdIndex                        =  0;
-static double g_updraftVelBuf[BUF_SIZE]       = {};
-static double g_inlineFlowBuf[BUF_SIZE]       = {};
-static Log_Pck_Struct log_pck                 = {};
-RTC_PCF8523      rtc;
-
+static char g_cmdBuffer[32]                   = {};     //buffer for command 
+static char g_cmdIndex                        =  0;     //cmdBuffer index to store command sent from another controller
+static double g_updraftVelBuf[BUF_SIZE]       = {};     //updraft velocity ring buffer
+static double g_inlineFlowBuf[BUF_SIZE]       = {};     //inline flow ring buffer
+static Log_Pck_Struct log_pck                 = {};     //packet of information
+RTC_PCF8523     rtc;
+static int      g_tempC;                                //placeholder for temperature sensor
+static uint8_t  g_buffer_index                = 0;      //buffer index for ring buffers (g_updraftVelBuf and g_inlineFlowBuf)
+static float                   g_updraft_sum  = 0;
+static float                    g_inline_sum  = 0;
 /**Variables used by interrupts*/
-static volatile int g_tempC;
-static volatile uint8_t g_buffer_index        = 0;
 static volatile int   g_Lcycles               = 0;  /**< # of cycles for timer1 */
 static volatile int   g_Scycles               = 0;  /**< # of cycles for timer1 */
 static volatile bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
-static float                           g_sum  = 0;
+
 
 void setup() 
-{
-
-                                                 
+{                                              
     while (!Serial) {                            /** Open serial communications and wait for port to open: */
         ;                                        /**< wait for serial port to connect. Needed for native USB port only */
     }
@@ -70,8 +71,8 @@ void setup()
         // January 21, 2014 at 3am you would call:
         // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
     }
-    //SD Card section below
-    {
+    
+    {//SD Card section below
       Serial.print("\nInitializing SD card...");
                                                  // make sure that the default chip select pin is set to
                                                  // output, even if you don't use it:
@@ -89,7 +90,7 @@ void setup()
           Serial.println("Wiring is correct and a card is present.");
       }
     } 
-
+    /**initialize ADC's*/
     ads.setGain(GAIN_ONE);
     ads_i.setGain(GAIN_ONE);
     ads.begin();
@@ -177,26 +178,32 @@ static int log_info(Log_Pck_Struct *pck)
     int ret = 0;
     char buf[10];
     static bool initialized = 0;
-    File dataFile = SD.open("datalog.txt", FILE_WRITE);
-    DateTime now = rtc.now();
-
+    File dataFile           = SD.open("datalog.txt", FILE_WRITE);
+    DateTime now            = rtc.now();
+    int year                = now.year();
+    int month               = now.month();
+    int day                 = now.day();
+    int hour                = now.hour();
+    int minute              = now.minute();
+    int second              = now.second();
+    
     // if the file is available, write to it:
     if (dataFile) {
         if (!initialized) {
            initialized = true;
            dataFile.println("time, sampling, rh(%), tempC, v_updraft, inlineFlow, v_nozzle, motorcmd");
         }
-        dataFile.print(now.year(), DEC);
+        dataFile.print(year, DEC);
         dataFile.print('/');
-        dataFile.print(now.month(), DEC);
+        dataFile.print(month, DEC);
         dataFile.print('/');
-        dataFile.print(now.day(), DEC);
+        dataFile.print(day, DEC);
         dataFile.print(' ');
-        dataFile.print(now.hour(), DEC);
+        dataFile.print(hour, DEC);
         dataFile.print(':');
-        dataFile.print(now.minute(), DEC);
+        dataFile.print(minute, DEC);
         dataFile.print(':');
-        dataFile.print(now.second(), DEC);
+        dataFile.print(second, DEC);
         dataFile.print(", ");
         dataFile.print(pck->isSampling);
         dataFile.print(", ");
@@ -224,21 +231,21 @@ static int log_info(Log_Pck_Struct *pck)
      * will send through the xbee.
      */
     Serial.print("Time = ");
-    Serial.print(now.year(), DEC);
+    Serial.print(year, DEC);
     Serial.print('/');
-    sprintf(buf, "%02d", now.month());
+    sprintf(buf, "%02d", month);
     Serial.print(buf);
     Serial.print('/');
-    sprintf(buf, "%02d", now.day());
+    sprintf(buf, "%02d", day);
     Serial.print(buf);
     Serial.print(' ');
-    sprintf(buf, "%02d", now.hour());
+    sprintf(buf, "%02d", hour);
     Serial.print(buf);
     Serial.print(':');
-    sprintf(buf, "%02d", now.minute());
+    sprintf(buf, "%02d", minute);
     Serial.print(buf);
     Serial.print(':');
-    sprintf(buf, "%02d", now.second());
+    sprintf(buf, "%02d", second);
     Serial.print(buf);
     Serial.print(", Sampling = ");
     Serial.print(pck->isSampling);
@@ -274,45 +281,52 @@ static int send_pkt(Log_Pck_Struct *pck)
 {
     return 0;
 }
-
+/* Function get_stringcmd
+ * Purpose: retrieve and store commands that have been sent from another controller.
+ */
 static uint8_t get_stringcmd()
 {
     char c;
     bool flag = 0;
-    while(Serial.available()){
+    while(Serial.available()){ //while there's a chacter in the serial buffer
         c = Serial.read();
-        if(g_cmdIndex == 64){/*error check*/}  
-        if(c == '\r' || c == '\n'){
-            g_cmdBuffer[g_cmdIndex] = '\0';
-            g_cmdIndex = 0;
-            flag = 1;
+        if(g_cmdIndex == 64){/*error check for buffer overflow*/}  
+        if(c == '\r' || c == '\n'){ //when termination character has been read, 
+            g_cmdBuffer[g_cmdIndex] = '\0';  //character arrays should have a terminating null character at the end of string 
+            g_cmdIndex = 0; //rest index to store character
+            flag = 1; //enable flag for command to be executed
             break;
         } else {
-            g_cmdBuffer[g_cmdIndex] = c;
+            g_cmdBuffer[g_cmdIndex] = c;  //store character in array
         }
-        g_cmdIndex++;
+        g_cmdIndex++;  //move to next position
          
     }
     return flag;
 }
-
+/* Function: execute_cmd
+ * Info: execute list of commands:
+ * Commands:    
+ *          SA: set isSampling variable: bool value (0 or 1)
+ *          U:  update/write to digital potentiometer to control motor speed
+ */
 static int execute_cmd(void* val, char const* cmd)
 {
     if(strcmp(cmd, "SA")==0){
-        log_pck.isSampling = *(int*)val;
-        mcp1.digitalWrite(0, *(int*)val);                        
+        log_pck.isSampling = *(int*)val;  
+        mcp1.digitalWrite(0, *(int*)val);                   //output val to digital output 0 of industrial shield                        
         
     } else if(strcmp(cmd, "U")==0){
-        i2c_writeRegisterByte (0x2c, 16, *(uint8_t*)val);  //device address, instruction byte, pot value 
+        i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value 
     }
     return 0;  
 }
 
 void parse_stringcmd(char* buf)
 {
-    char cmd[2] = {};
-    int i = -1;
-    sscanf(buf, "%s %d", cmd, &i);
+    char cmd[2] = {}; //cmd is at most 2 characters, ie, SA
+    int i = -1; //-1 is a placeholder
+    sscanf(buf, "%s %d", cmd, &i); //the data in buf would be copied to variables cmd and i 
     execute_cmd(&i, (char const*)cmd);
 }
 
@@ -326,84 +340,80 @@ double movingAverage(double *Arr, float *Sum, volatile int pos, int len, double 
     return *Sum / len;
 }
 
-#define MAP(x, a, b, c, d) ((x - a) / (b - a) * (d - c) + c)
-
 void update_sensors()        
 {
-    uint16_t gainfactor        = 1;        // 1 is placeholder
-    float  iso_nozzle_diameter = 3.1;   // isokinetic nozzle diameter in millimeters
-    float tempC                = MAP(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
+    double error;
+    float  iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
+    float tempC                = map(g_tempC, 4.0f, 20.0f, 0.0f, 100.0f);
     /**<
      * updraft velocity read:
      * adc value * multiplier for gain 1 of ads1115 * mph coefficient
      * ADS1115 @ +/- 4.096V gain (16-bit results)
      * Output is in mph 
      */
-    double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.04025; //velocity in mph
+    double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s
     /**< 
      * inline flow read: 
      * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
      * Output is in mV but converted to L/min 
      */
-    double inline_f  = MAP(ads_i.readADC_SingleEnded(0) * 2.0f * 2, 0.0, 10000.0, 0.0, 200.0) 
-                                  * (273.15 + tempC) / (273.15 + 21.11);
+    double inline_f  = map(ads_i.readADC_SingleEnded(0) * 2.0f * 2, 0.0, 10000.0, 0.0, 200.0) 
+                                  * (273.15 + tempC) / (273.15 + 21.11); //units = liters/min
 
-    /**store vel and flow in ring buffer.
-    */
+    /**store velocity and flow in ring buffer.*/
     if(g_buffer_index == BUF_SIZE){
         g_buffer_index = 0;  
     }
     
-    log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_sum, g_buffer_index,BUF_SIZE, updraft_v);
-    log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_sum, g_buffer_index,BUF_SIZE, inline_f );
-    log_pck.nozzleVel       = log_pck.inlineFlow / 5*(3.1415*pow((iso_nozzle_diameter/2),2));
+    log_pck.updraftVel      = movingAverage(g_updraftVelBuf, &g_updraft_sum, g_buffer_index,BUF_SIZE, updraft_v);
+    log_pck.inlineFlow      = movingAverage(g_inlineFlowBuf, &g_inline_sum, g_buffer_index,BUF_SIZE, inline_f );
+    
+    /*calulate nozzle velocity*/
+    log_pck.nozzleVel       = log_pck.inlineFlow /60/1000/ (5*(3.1415*pow((iso_nozzle_diameter/2),2))); //units = m/s
+    
     log_pck.tempC           = tempC;
     log_pck.rh              = tempC;
 
-    g_buffer_index++;
+    /*P control for motor*/
+     error        = log_pck.nozzleVel - log_pck.updraftVel; //units = m/s
+#define KP 2
+#define KI 1
+#define KD 1
+    log_pck.motorcommand = log_pck.motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
+    //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
+    if(log_pck.motorcommand > 255) log_pck.motorcommand = 255;
+    else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
     
-    if(log_pck.isSampling){
-        int error = gainfactor*(log_pck.nozzleVel-log_pck.updraftVel);
-        if(error < 0){
-            //slow down motors
-            log_pck.motorcommand -= 10;
-            if(log_pck.motorcommand < 0)
-              log_pck.motorcommand = 0;
-        }else if(error+log_pck.motorcommand > 255){
-            log_pck.motorcommand = 255;
-        } else
-            log_pck.motorcommand+=error; 
-        //output command to motor
+    if(log_pck.isSampling){//if we want to sample...
         execute_cmd(&log_pck.motorcommand, "U");
-    } else{//make sure motors are off
+    }
+    else{//make sure motors are off
         log_pck.motorcommand    = 0;
         execute_cmd(&log_pck.motorcommand, "SA");
     }
-
+    g_buffer_index++;
 }
 
 void tests()
 {
 //    while(1);
 }
-
-
 void loop()
 {
-
+    //poll until we want to update sensors or store command from another controller
     while(!g_update_flag && Serial.available() == 0 );
 
-    if(Serial.available() > 0){
-        if(get_stringcmd()){
+    if(Serial.available() > 0){ //if serial buffer received command
+        if(get_stringcmd()){//if we received full command
 //            Serial.print("cmd: ");
 //            Serial.println(g_cmdBuffer);
-            parse_stringcmd(g_cmdBuffer);  
+            parse_stringcmd(g_cmdBuffer);  //parse and execute command
         }
     }
-    if(g_update_flag){
+    if(g_update_flag){//if it's time to read sensors
       
         g_update_flag = 0;
-        update_sensors();
+        update_sensors(); 
 
         if(g_Scycles >= PERIOD_SENDDATA){
             g_Scycles = 0;
@@ -413,7 +423,6 @@ void loop()
             g_Lcycles = 0;
             log_info(&log_pck);
         }
-
     }
-//      tests();
+//      tests(); //function used to test other functions.
 }
