@@ -1,3 +1,18 @@
+/* Last update 12/19/18
+ *  This version uses a number of devices and shields. 
+ *  Arduino wireless datalogging shield: for xbee communication only
+ *  Arduino RTC and datalogging shield: for SD card logging and RTC
+ *  Ruggeduino IO shield: using onboard ADC for TSI flow meter.
+ *  ADS1115: on proto shield, used for updraft velocity analog signal.
+ *  Digital potentiometer on proto shield: used for controlling brushless motor.  10k pot.
+ *  INA219 high-side current sensors, x2 (address 0x40 and 0x41): for measuring 4-20ma current loop from RH sensor 
+ *  
+ *  To be added: Adafruit HTU21D-F humidity sensor, on its own proto board, for temp and RH in electronics enclosure.
+ * 
+ * 
+ * 
+ */
+
 #include <SPI.h>
 #include <SD.h>
 #include <Wire.h>
