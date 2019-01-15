@@ -21,9 +21,9 @@
 #include <SD.h>
 #include <Wire.h>
 #include "RTClib.h"
-#include <Adafruit_ADS1015.h>
-#include <Adafruit_MCP23017.h>
-#include <Adafruit_INA219.h>
+#include <Adafruit_ADS1015.h> //ruggeduino industrial shield adc
+#include <Adafruit_MCP23017.h> //ruggeduino industrial shield gpio
+#include <Adafruit_INA219.h> //current sensors
 
 #define BUF_SIZE 6
 #define INDUSTRIAL_SHIELD_ADC_ADDRESS   0x48
@@ -133,12 +133,10 @@ void setup()
     interrupts();                              // enable all interrupts
 
     /**initialize current sensors**/
-    Serial.println("Initializing current sensors");
     ina219Temp.begin();
     ina219RH.begin();
     ina219Temp.setCalibration_32V_20mA(); //may have to edit library to invoke 32v_20mA.  otherwise, initialize as 32v_1A and divide results by 50.
     ina219RH.setCalibration_32V_20mA();
-    Serial.println("Finished initializing current sensors");
 }
 
 /** Timer frequency: 1 cycle per second
@@ -347,11 +345,11 @@ static uint8_t get_stringcmd()
  */
 static int execute_cmd(void* val, char const* cmd)
 {
-    if(strcmp(cmd, "SA")==0){
+    if(strcmp(cmd, "SA")==0){ //"SA" sets sampling status.  SA = 1 is sampling on.
         log_pck.isSampling = *(int*)val;  
         mcp1.digitalWrite(0, *(int*)val);                   //output val to digital output 0 of industrial shield                        
         
-    } else if(strcmp(cmd, "U")==0){
+    } else if(strcmp(cmd, "U")==0){  //"U" writes a value to the digital potentiometer manually
         i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value 
     }
     return 0;  
@@ -379,8 +377,7 @@ void update_sensors()        //update values from all sensors.
 {
     double error;
     float  iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
-    float tempMa = ina219Temp.getCurrent_mA();
-    g_tempC_inline = (tempMa-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
+    g_tempC_inline = (ina219Temp.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
     g_RH_inline = (ina219RH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
     /**<
      * updraft velocity read:
@@ -423,9 +420,11 @@ void update_sensors()        //update values from all sensors.
     
     if(log_pck.isSampling){//if we want to sample...
         execute_cmd(&log_pck.motorcommand, "U");
+        mcp1.digitalWrite(0, HIGH); // and turn on solenoid using rugged shield
     }
     else{//make sure motors are off
         log_pck.motorcommand    = 0;
+        mcp1.digitalWrite(0, LOW); //verify motor solenoid is off
         execute_cmd(&log_pck.motorcommand, "SA");
     }
     g_buffer_index++;
