@@ -6,9 +6,9 @@
  * 
  *  This version uses a number of devices and shields. 
  *  Arduino wireless datalogging shield: for xbee communication only
- *  Arduino RTC and datalogging shield: for SD card logging and RTC
- *  Ruggeduino IO shield: using onboard ADC for TSI flow meter. Using channel 0 in single-ended, gain one, for TSI flowmeter.
- *  ADS1115: on proto shield, used for updraft velocity analog signal. set to gain one, using differential read between channel 0-1
+ *  Arduino RTC and datalogging shield: for SD card logging (SPI) and RTC (0x68)
+ *  Ruggeduino IO shield: using onboard ADC for TSI flow meter. Using channel 0 in single-ended, gain one, for TSI flowmeter. Use voltage divider jumper on shield to reduce 0-10v to 0-5v. use single ended mode, since differential mode apparently goes negative sometimes.
+ *  ADS1115: on proto shield, used for updraft velocity analog signal. set to gain one, using differential read between channel 0-1. Address 0x4a selected
  *  Digital potentiometer on proto shield: used for controlling brushless motor.  10k pot.
  *  INA219 high-side current sensors, x2 (address 0x44 and 0x41): for measuring 4-20ma current loop from RH sensor 
  *  HTU21D-F temperature and humidity sensor for inside electrical enclosure, address 0x40
@@ -27,11 +27,12 @@
 
 #define BUF_SIZE 6
 #define INDUSTRIAL_SHIELD_ADC_ADDRESS   0x48
+#define INDUSTRIAL_SHIELD_GPIO_ADDRESS  0x21
 #define SCREW_IN_SHIELD_ADC_ADDRESS     0x4A
 #define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
-#define ELECTRONICS_RH_ADDRESS          0x40 //not currently present
+//#define ELECTRONICS_RH_ADDRESS          0x40 //not currently present
 
 
 static Adafruit_MCP23017 mcp1;
@@ -130,6 +131,14 @@ void setup()
     TCCR1B |= ((1 << CS12)| (1 << CS10)) ;     // prescaler 
     TIMSK1 |= (1 << TOIE1);                    // enable timer overflow interrupt
     interrupts();                              // enable all interrupts
+
+    /**initialize current sensors**/
+    Serial.println("Initializing current sensors");
+    ina219Temp.begin();
+    ina219RH.begin();
+    ina219Temp.setCalibration_32V_20mA(); //may have to edit library to invoke 32v_20mA.  otherwise, initialize as 32v_1A and divide results by 50.
+    ina219RH.setCalibration_32V_20mA();
+    Serial.println("Finished initializing current sensors");
 }
 
 /** Timer frequency: 1 cycle per second
@@ -370,7 +379,8 @@ void update_sensors()        //update values from all sensors.
 {
     double error;
     float  iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
-    g_tempC_inline = (ina219Temp.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
+    float tempMa = ina219Temp.getCurrent_mA();
+    g_tempC_inline = (tempMa-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
     g_RH_inline = (ina219RH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
     /**<
      * updraft velocity read:
