@@ -425,6 +425,7 @@ void update_sensors()        //update values from all sensors.
 #define KP 2
 #define KI 1
 #define KD 1
+    //log_pck.motorcommand = 50;
     log_pck.motorcommand = log_pck.motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
     //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
     if(log_pck.motorcommand > 255) log_pck.motorcommand = 255;
@@ -433,12 +434,10 @@ void update_sensors()        //update values from all sensors.
     if(log_pck.isSampling){//if we want to sample...
         execute_cmd(&log_pck.motorcommand, "U");
         //mcp1.digitalWrite(0, HIGH); // and turn on solenoid using rugged shield
-        digitalWrite(MOTOR_ENABLE_PIN, HIGH);
     }
     else{//make sure motors are off
         log_pck.motorcommand    = 255; //255 is lowest speed
         //mcp1.digitalWrite(0, LOW); //verify motor solenoid is off
-        digitalWrite(MOTOR_ENABLE_PIN, LOW);
         execute_cmd(&log_pck.motorcommand, "SA");
     }
     g_buffer_index++;
