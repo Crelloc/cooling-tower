@@ -2,7 +2,7 @@
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
  * * Last Modified: 10-31-18
- * updated by CDW 01/08/2019
+ * updated by CDW 01/16/2019
  * 
  *  This version uses a number of devices and shields. 
  *  Arduino wireless datalogging shield: for xbee communication only
@@ -33,11 +33,11 @@
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
 //#define ELECTRONICS_RH_ADDRESS          0x40 //not currently present
-
+#define MOTOR_ENABLE_PIN                6 //digital pin to control relay shield for motor enable.  Pin 6 is relay 2 on relay shield.
 
 static Adafruit_MCP23017 mcp1;
 static Adafruit_ADS1115 ads(SCREW_IN_SHIELD_ADC_ADDRESS);
-static Adafruit_ADS1015 ads_i(INDUSTRIAL_SHIELD_ADC_ADDRESS);     /* Use this for the 12-bit version, 73 if the jumper is shorted) */
+static Adafruit_ADS1115 ads_i(INDUSTRIAL_SHIELD_ADC_ADDRESS);     /* new shield with ADS 1115 to measure TSI flowmeter */
 static Adafruit_INA219 ina219Temp(0x44);  
 static Adafruit_INA219 ina219RH(0x41);
 
@@ -98,7 +98,7 @@ void setup()
         // January 21, 2014 at 3am you would call:
         // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
     }
-    
+    //rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); //uncomment this line to sync rtc with computer time
     {//SD Card section below
       Serial.print("\nInitializing SD card...");
                                                  // make sure that the default chip select pin is set to
@@ -119,7 +119,7 @@ void setup()
     } 
     /**initialize ADC's*/
     ads.setGain(GAIN_ONE);
-    ads_i.setGain(GAIN_ONE);
+    ads_i.setGain(GAIN_TWOTHIRDS); // 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default)
     ads.begin();
     ads_i.begin();
     
@@ -137,6 +137,9 @@ void setup()
     ina219RH.begin();
     ina219Temp.setCalibration_32V_20mA(); //may have to edit library to invoke 32v_20mA.  otherwise, initialize as 32v_1A and divide results by 50.
     ina219RH.setCalibration_32V_20mA();
+
+     // initialize digital pin for motor enable as an output.
+    pinMode(MOTOR_ENABLE_PIN, OUTPUT);
 }
 
 /** Timer frequency: 1 cycle per second
@@ -347,7 +350,16 @@ static int execute_cmd(void* val, char const* cmd)
 {
     if(strcmp(cmd, "SA")==0){ //"SA" sets sampling status.  SA = 1 is sampling on.
         log_pck.isSampling = *(int*)val;  
-        mcp1.digitalWrite(0, *(int*)val);                   //output val to digital output 0 of industrial shield                        
+        if (*(int*)val == 1) {
+          Serial.println("Sampling turned on");
+          digitalWrite(MOTOR_ENABLE_PIN, HIGH);
+        }
+        else {
+          Serial.println("Sampling turned off");
+          digitalWrite(MOTOR_ENABLE_PIN, LOW);
+        }
+        
+        //mcp1.digitalWrite(0, *(int*)val);                   //output val to digital output 0 of industrial shield                        
         
     } else if(strcmp(cmd, "U")==0){  //"U" writes a value to the digital potentiometer manually
         i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value 
@@ -391,7 +403,7 @@ void update_sensors()        //update values from all sensors.
      * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
      * Output is in mV but converted to L/min 
      */
-    double inline_f  = map(ads_i.readADC_SingleEnded(0) * 2.0f * 2, 0.0, 10000.0, 0.0, 200.0) 
+    double inline_f  = map(ads_i.readADC_SingleEnded(1) * 0.1875f * 2, 0.0, 10000.0, 0.0, 200.0) 
                                   * (273.15 + g_tempC_inline) / (273.15 + 21.11); //units = liters/min
 
     /**store velocity and flow in ring buffer.*/
@@ -413,6 +425,7 @@ void update_sensors()        //update values from all sensors.
 #define KP 2
 #define KI 1
 #define KD 1
+    //log_pck.motorcommand = 50;
     log_pck.motorcommand = log_pck.motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
     //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
     if(log_pck.motorcommand > 255) log_pck.motorcommand = 255;
@@ -420,11 +433,11 @@ void update_sensors()        //update values from all sensors.
     
     if(log_pck.isSampling){//if we want to sample...
         execute_cmd(&log_pck.motorcommand, "U");
-        mcp1.digitalWrite(0, HIGH); // and turn on solenoid using rugged shield
+        //mcp1.digitalWrite(0, HIGH); // and turn on solenoid using rugged shield
     }
     else{//make sure motors are off
-        log_pck.motorcommand    = 0;
-        mcp1.digitalWrite(0, LOW); //verify motor solenoid is off
+        log_pck.motorcommand    = 255; //255 is lowest speed
+        //mcp1.digitalWrite(0, LOW); //verify motor solenoid is off
         execute_cmd(&log_pck.motorcommand, "SA");
     }
     g_buffer_index++;
@@ -446,7 +459,8 @@ void loop()
             parse_stringcmd(g_cmdBuffer);  //parse and execute command
         }
     }
-    if(g_update_flag){//if it's time to read sensors
+    
+   if(g_update_flag){//if it's time to read sensors
       
         g_update_flag = 0;
         update_sensors(); 
