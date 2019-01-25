@@ -17,12 +17,12 @@ Hardware Hookup:
 //For Atmega328P's
 // XBee's DOUT (TX) is connected to pin 2 (Arduino's Software RX)
 // XBee's DIN (RX) is connected to pin 3 (Arduino's Software TX)
-SoftwareSerial XBee(2, 3); // RX, TX
+//SoftwareSerial XBee(2, 3); // RX, TX
 
 //For Atmega2560, ATmega32U4, etc.
 // XBee's DOUT (TX) is connected to pin 10 (Arduino's Software RX)
 // XBee's DIN (RX) is connected to pin 11 (Arduino's Software TX)
-//SoftwareSerial XBee(10, 11); // RX, TX
+SoftwareSerial XBee(10, 11); // RX, TX
 
 void setup()
 {
@@ -31,6 +31,8 @@ void setup()
   // setting of your XBee.
   XBee.begin(9600);
   Serial.begin(9600);
+  Serial.println("Serial test");
+  XBee.println("Xbee test");
 }
 
 void loop()
