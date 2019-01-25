@@ -26,6 +26,7 @@
 #include <Adafruit_MCP23017.h> //ruggeduino industrial shield gpio
 #include <Adafruit_INA219.h> //current sensors
 #include <SoftwareSerial.h> //for xbee shield
+#include "Adafruit_HTU21DF.h" //enclosure temp and humidity sensor
 
 #define BUF_SIZE 6
 #define ADC2_ADDRESS                    0x48
@@ -34,7 +35,7 @@
 #define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
-#define ELECTRONICS_RH_ADDRESS          0x40 //not currently present
+#define ELECTRONICS_RH_ADDRESS          0x40 
 
 #define SD_CARD_CS_PIN                  9 //not factory, must modify jumper on board to make it 9
 #define MOTOR_ENABLE_PIN                6 //digital pin to control relay shield for motor enable.  Pin 6 is relay 2 on relay shield.
@@ -51,6 +52,7 @@ static Adafruit_ADS1115 ads(SCREW_IN_SHIELD_ADC_ADDRESS);
 static Adafruit_ADS1115 ads_i(ADC2_ADDRESS);     /* new shield with ADS 1115 to measure TSI flowmeter */
 static Adafruit_INA219 ina219Temp(0x44);  
 static Adafruit_INA219 ina219RH(0x41);
+static Adafruit_HTU21DF htu = Adafruit_HTU21DF();
 
 //For Atmega2560, ATmega32U4, etc.
 // XBee's DOUT (TX) is connected to pin 10 (Arduino's Software RX)
@@ -68,6 +70,8 @@ typedef struct Log_Pck_Struct {  // Typedef for data packet
     int motorcommand;
     float enclosureTempC;
     float enclosureRH;
+    float encl_tempC;
+    float encl_rh;
 } Log_Pck_Struct;
  
 /**Global Variables*/
@@ -103,8 +107,13 @@ void setup()
     //RTC section below
     if (! rtc.begin()) {
         Serial.println("Couldn't find RTC");
-        while (1);
+        //while (1);
     }
+
+    if (!htu.begin()) {
+    Serial.println("Couldn't find enclosure temp and RH sensor!");
+    }
+     
     if (! rtc.initialized()) {
         Serial.println("RTC is NOT running!");
         // following line sets the RTC to the date & time this sketch was compiled
@@ -242,7 +251,7 @@ static int log_info(Log_Pck_Struct *pck)
     if (dataFile) {
         if (!initialized) {
            initialized = true;
-           dataFile.println("time, sampling, rh(%), tempC, v_updraft, inlineFlow, v_nozzle, motorcmd");
+           dataFile.println("time, sampling, rh(%), tempC, v_updraft, inlineFlow, v_nozzle, motorcmd, enclosure TempC, enclosure RH");
         }
         dataFile.print(year, DEC);
         dataFile.print('/');
@@ -268,7 +277,11 @@ static int log_info(Log_Pck_Struct *pck)
         dataFile.print(", ");
         dataFile.print(pck->nozzleVel, 4);
         dataFile.print(", ");
-        dataFile.println(pck->motorcommand);
+        dataFile.print(pck->motorcommand);
+        dataFile.print(", ");
+        dataFile.print(pck->encl_tempC, 2);
+        dataFile.print(", ");
+        dataFile.println(pck->encl_rh, 4);
         dataFile.close();
 
     } else {
@@ -318,6 +331,12 @@ static int log_info(Log_Pck_Struct *pck)
     Serial.print(", motorcmd = ");
     sprintf(buf, "%03d", pck->motorcommand);
     Serial.print(buf);
+    Serial.print(", encl_hum = (%)");
+    sprintf_f(pck->encl_rh, buf);
+    Serial.print(buf);
+    Serial.print(", encl_temp = ");
+    sprintf_f(pck->encl_tempC, buf);
+    Serial.print(buf);
     Serial.println();
 
     /**print to the Xbee software serial port too:
@@ -361,6 +380,14 @@ static int log_info(Log_Pck_Struct *pck)
     XBee.print(", motorcmd = ");
     sprintf(buf, "%03d", pck->motorcommand);
     XBee.print(buf);
+
+    XBee.print(", encl_hum = (%)");
+    sprintf_f(pck->encl_rh, buf);
+    XBee.print(buf);
+    XBee.print(", encl_temp = ");
+    sprintf_f(pck->encl_tempC, buf);
+    XBee.print(buf);
+
     XBee.println();
     return ret;
 
@@ -443,6 +470,9 @@ void update_sensors()        //update values from all sensors.
     float  iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
     g_tempC_inline = (ina219Temp.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
     g_RH_inline = (ina219RH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
+    g_tempC_enclosure = htu.readTemperature(); //no ring buffer necessary
+    g_RH_enclosure = htu.readHumidity(); //no ring buffer necessary
+    
     /**<
      * updraft velocity read:
      * adc value * multiplier for gain 1 of ads1115 * mph coefficient
@@ -471,6 +501,9 @@ void update_sensors()        //update values from all sensors.
     
     log_pck.tempC           = g_tempC_inline;
     log_pck.rh              = g_RH_inline;
+
+    log_pck.encl_tempC           = g_tempC_enclosure;
+    log_pck.encl_rh              = g_RH_enclosure;
 
     /*P control for motor*/
      error        = log_pck.nozzleVel - log_pck.updraftVel; //units = m/s
