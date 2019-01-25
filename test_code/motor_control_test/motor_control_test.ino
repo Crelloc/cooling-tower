@@ -1,6 +1,7 @@
 /* Test code to check functionality of digitial potentiometer, 
  * flow enable/disable relay, and speed control
  * 
+ * Last edited 1/25/19 CDW
   */
 
 #include <Wire.h>
