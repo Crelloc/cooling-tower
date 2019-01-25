@@ -88,10 +88,13 @@ static double      g_tempC_enclosure;                   //Temperature in electro
 static uint8_t  g_buffer_index                = 0;      //buffer index for ring buffers (g_updraftVelBuf and g_inlineFlowBuf)
 static float                   g_updraft_sum  = 0;
 static float                    g_inline_sum  = 0;
+static int g_motor_control_mode               =0;  // 0 is PID feedback control (default), 1 is user defined using serial commands
+
 /**Variables used by interrupts*/
 static volatile int   g_Lcycles               = 0;  /**< # of cycles for timer1 */
 static volatile int   g_Scycles               = 0;  /**< # of cycles for timer1 */
-static volatile bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
+static bool  g_update_flag           = 0;  /**< flag to calculate velocity, flow, and motor command*/
+
 
 
 void setup() 
@@ -442,7 +445,15 @@ static int execute_cmd(void* val, char const* cmd)
         
     } else if(strcmp(cmd, "U")==0){  //"U" writes a value to the digital potentiometer manually
         i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value.  Call this when you want to write to the i2c.
+    
+    } else if (strcmp(cmd, "MC")==0){ //"MC" writes the motor command, from 0-255, manually.  Motor control must be in mode 1 to matter.
+        log_pck.motorcommand = *(int*)val;
+        
+    } else if (strcmp(cmd, "MD")==0){ //"MD" sets the mode for motor speed control. 0 = auto, PID feedback, 1 = manual control using "MC" command to set speed.
+        g_motor_control_mode = *(int*)val;
     }
+
+    
     return 0;  
 }
 
@@ -506,14 +517,20 @@ void update_sensors()        //update values from all sensors.
     log_pck.encl_rh              = g_RH_enclosure;
 
     /*P control for motor*/
-     error        = log_pck.nozzleVel - log_pck.updraftVel; //units = m/s
-#define KP 2
-#define KI 1
-#define KD 1
-    log_pck.motorcommand = log_pck.motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
-    //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
-    if(log_pck.motorcommand > 255) log_pck.motorcommand = 255;
-    else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
+
+    if(g_motor_control_mode == 0) { //if in auto PID control mode...
+      error        = log_pck.nozzleVel - log_pck.updraftVel; //units = m/s
+      #define KP 2
+      #define KI 1
+      #define KD 1
+      log_pck.motorcommand = log_pck.motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
+      //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
+      if(log_pck.motorcommand > 255) log_pck.motorcommand = 255;
+      else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
+    }
+    else if (g_motor_control_mode == 1) { //if in mode 1, taking manual commands via serial for speed setting.  Don't recalculate motor command in feedback.
+    }
+    
     
     if(log_pck.isSampling){//if we want to sample...
         execute_cmd(&log_pck.motorcommand, "U"); //send the current motor command value to the i2c potentiometer
