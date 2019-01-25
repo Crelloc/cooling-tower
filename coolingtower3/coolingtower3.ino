@@ -32,7 +32,7 @@
 #define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
-//#define ELECTRONICS_RH_ADDRESS          0x40 //not currently present
+#define ELECTRONICS_RH_ADDRESS          0x40 //not currently present
 #define MOTOR_ENABLE_PIN                6 //digital pin to control relay shield for motor enable.  Pin 6 is relay 2 on relay shield.
 
 static Adafruit_MCP23017 mcp1;
