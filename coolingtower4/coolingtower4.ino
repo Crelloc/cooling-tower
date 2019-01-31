@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 10-31-18
+ * * Last Modified: 01-30-19
  * updated by CDW 01/24/2019
  * 
  * 
@@ -27,6 +27,8 @@
 #include <Adafruit_INA219.h> //current sensors
 #include <SoftwareSerial.h> //for xbee shield
 #include "Adafruit_HTU21DF.h" //enclosure temp and humidity sensor
+#include <Adafruit_MCP4725.h> //for dac that's connected to motor controller
+
 
 #define BUF_SIZE 6
 #define ADC2_ADDRESS                    0x48
@@ -36,10 +38,18 @@
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
 #define ELECTRONICS_RH_ADDRESS          0x40 
+#define DAC_ADDRESS                     0x62
 
 #define SD_CARD_CS_PIN                  9 //not factory, must modify jumper on board to make it 9
 #define MOTOR_ENABLE_PIN                6 //digital pin to control relay shield for motor enable.  Pin 6 is relay 2 on relay shield.
 
+#define MAP(x, a, b, c, d) \
+    ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+       __typeof__ (c) _c = (c); \
+       __typeof__ (d) _d = (d); \
+       __typeof__ (x) _x = (x); \
+    ((_x - _a) / (_b - _a) * (_d - _c) + _c); })
 //Pin usage
 //D10, D11, D12, D13 are SPI pins. 10 is used for Chip Select by the SD card.  However, these are all jumperable.  as of 1/24 modified to be CS 9.
 //A4 and A5 are I2c pins
@@ -53,6 +63,8 @@ static Adafruit_ADS1115 ads_i(ADC2_ADDRESS);     /* new shield with ADS 1115 to 
 static Adafruit_INA219 ina219Temp(0x44);  
 static Adafruit_INA219 ina219RH(0x41);
 static Adafruit_HTU21DF htu = Adafruit_HTU21DF();
+static Adafruit_MCP4725 dac;
+
 
 //For Atmega2560, ATmega32U4, etc.
 // XBee's DOUT (TX) is connected to pin 10 (Arduino's Software RX)
@@ -116,7 +128,9 @@ void setup()
     if (!htu.begin()) {
     Serial.println("Couldn't find enclosure temp and RH sensor!");
     }
-     
+
+    dac.begin(0x62);
+
     if (! rtc.initialized()) {
         Serial.println("RTC is NOT running!");
         // following line sets the RTC to the date & time this sketch was compiled
@@ -178,8 +192,8 @@ ISR(TIMER1_OVF_vect)
 {
 //#define PERIOD_UPDATE_SENSORS 1
                            
-#define PERIOD_LOGDATA  10  /** Every 10 cycles set flag to log data*/
-#define PERIOD_SENDDATA 10
+#define PERIOD_LOGDATA  3  /** Every 10 cycles set flag to log data*/
+#define PERIOD_SENDDATA 3
     TCNT1 = 49911;
     ++g_Lcycles;               /** number of seconds elapsed; count for logging data*/
     ++g_Scycles;               /** number of seconds elapsed; count for sending data*/
@@ -225,7 +239,7 @@ byte i2c_writeRegisterByte (uint8_t deviceAddress, uint8_t registerAddress, uint
 */
 static void sprintf_f(float fval, char *c)
 {
-    char *tmpSign = (fval < 0) ? "-"   : "";
+    char *tmpSign = (fval < 0) ? (char*)"-"   : (char*)"";
     float tmpVal  = (fval < 0) ? -fval : fval;
 
     int tmpInt1   = tmpVal;
@@ -443,11 +457,13 @@ static int execute_cmd(void* val, char const* cmd)
         log_pck.isSampling = *(int*)val;  
         digitalWrite(MOTOR_ENABLE_PIN, *(int*)val);                   //output val to motor enable relay.                     
         
-    } else if(strcmp(cmd, "U")==0){  //"U" writes a value to the digital potentiometer manually
-        i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value.  Call this when you want to write to the i2c.
+    } else if(strcmp(cmd, "U")==0){  //"U" writes a value to the digital potentiometer or DAC manually
+        //i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value.  Call this when you want to write to the i2c.
+        dac.setVoltage(*(int*)val, false);
     
-    } else if (strcmp(cmd, "MC")==0){ //"MC" writes the motor command, from 0-255, manually.  Motor control must be in mode 1 to matter.
+    } else if (strcmp(cmd, "MC")==0){ //"MC" writes the motor command, from 0-255 (for digital pot) and from 0-4095 (for dac), manually.  Motor control must be in mode 1 to matter.
         log_pck.motorcommand = *(int*)val;
+        dac.setVoltage(*(int*)val, false);
         
     } else if (strcmp(cmd, "MD")==0){ //"MD" sets the mode for motor speed control. 0 = auto, PID feedback, 1 = manual control using "MC" command to set speed.
         g_motor_control_mode = *(int*)val;
@@ -456,7 +472,9 @@ static int execute_cmd(void* val, char const* cmd)
     
     return 0;  
 }
-
+/**
+ * parse sring command and execute
+*/
 void parse_stringcmd(char* buf)
 {
     char cmd[2] = {}; //cmd is at most 2 characters, ie, SA
@@ -496,7 +514,7 @@ void update_sensors()        //update values from all sensors.
      * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
      * Output is in mV but converted to L/min 
      */
-    double inline_f  = map(ads_i.readADC_SingleEnded(1) * 0.1875f * 2, 0.0, 10000.0, 0.0, 200.0)  //read TSI inline flow meter.  Gain 2/3 coeff. Map 0-10V to 0-200 lpm. Multiply original voltage by 2 because of voltage divider.
+    double inline_f  = MAP(ads_i.readADC_SingleEnded(1) * 0.1875f * 2, 0.0, 10000.0, 0.0, 200.0)  //read TSI inline flow meter.  Gain 2/3 coeff. Map 0-10V to 0-200 lpm. Multiply original voltage by 2 because of voltage divider.
                                   * (273.15 + g_tempC_inline) / (273.15 + 21.11); //units = liters/min
 
     /**store velocity and flow in ring buffer.*/
@@ -523,9 +541,9 @@ void update_sensors()        //update values from all sensors.
       #define KP 2
       #define KI 1
       #define KD 1
-      log_pck.motorcommand = log_pck.motorcommand + KP*error;  //recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
+      log_pck.motorcommand = log_pck.motorcommand + KP*error;  //for digital pot: recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
       //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
-      if(log_pck.motorcommand > 255) log_pck.motorcommand = 255;
+      if(log_pck.motorcommand > 4095) log_pck.motorcommand = 4095;
       else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
     }
     else if (g_motor_control_mode == 1) { //if in mode 1, taking manual commands via serial for speed setting.  Don't recalculate motor command in feedback.
@@ -534,12 +552,11 @@ void update_sensors()        //update values from all sensors.
     
     if(log_pck.isSampling){//if we want to sample...
         execute_cmd(&log_pck.motorcommand, "U"); //send the current motor command value to the i2c potentiometer
-        digitalWrite(MOTOR_ENABLE_PIN, HIGH); // and turn on solenoid using rugged shield
+        digitalWrite(MOTOR_ENABLE_PIN, HIGH); // and turn on solenoid using rugged shield (make sure it's on)
     }
     else{//make sure motors are off
-        log_pck.motorcommand    = 255; //255 is lowest speed
+        log_pck.motorcommand    = 0; //for digital pot, 255 is lowest speed, for dac, 0 is lowest speed
         digitalWrite(MOTOR_ENABLE_PIN, LOW); //verify motor solenoid is off
-        //execute_cmd(&log_pck.motorcommand, "U"); //changed this line from "SA".  No reason to set SA if SA is already set to get to this step.
     }
     g_buffer_index++;
 }
