@@ -46,6 +46,7 @@ static double             last_error;
 static double             integral = 0;
 static double             derivative;
 static double             motorcommand = 0;
+static double             last_motorcommand = 0;
 
 
 void logdata(double vel)
@@ -121,15 +122,18 @@ void update_sensors()
 #define KP -100
 #define KI 1
 #define KD 1
+#define DELTA 50
     motorcommand = motorcommand + KP*error;  
     //motorcommand = (KP * error) + (KI * integral) + (KD * derivative);
-    if(motorcommand > 4095) motorcommand -= 50;
-    else if(motorcommand < 0) motorcommand += 50;
+    if(last_motorcommand == 4095) motorcommand -= DELTA;
+    else if(motorcommand > 4095) motorcommand = 4095;
+    else if(last_motorcommand == 0) mototcommand = += DELTA;
+    else if(motorcommand < 0) motorcommand = 0;
 
     //output command to motor
     dac.setVoltage(motorcommand, false);
     last_error = error;
-
+    last_motorcommand = motorcommand;
     //log nozzleVel and time
     //logdata(nozzleVel);
     Serial.print("motor command = ");
