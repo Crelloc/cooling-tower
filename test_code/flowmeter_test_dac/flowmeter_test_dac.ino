@@ -46,7 +46,6 @@ static double             last_error;
 static double             integral = 0;
 static double             derivative;
 static double             motorcommand = 0;
-static double             last_motorcommand = 0;
 
 
 void logdata(double vel)
@@ -95,7 +94,7 @@ void update_sensors()
     double        nozzleVel; 
     const float   iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
     float   tempC                     = (ina219Temp.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.
-    double  updraft_v                 = 12.0; //12 m/s is the max speed for p control to work
+    double  updraft_v                 = 12.0;
 #define MAP(x, a, b, c, d) \
     ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
@@ -119,21 +118,18 @@ void update_sensors()
     Serial.println(error);
     integral     = integral + error;
     derivative   = error - last_error;
-#define KP -100
+#define KP -10
 #define KI 1
 #define KD 1
-#define DELTA 50
     motorcommand = motorcommand + KP*error;  
     //motorcommand = (KP * error) + (KI * integral) + (KD * derivative);
-    if(last_motorcommand == 4095) motorcommand -= DELTA;
-    else if(motorcommand > 4095) motorcommand = 4095;
-    else if(last_motorcommand == 0) mototcommand = += DELTA;
+    if(motorcommand > 4095) motorcommand = 4095;
     else if(motorcommand < 0) motorcommand = 0;
 
     //output command to motor
     dac.setVoltage(motorcommand, false);
     last_error = error;
-    last_motorcommand = motorcommand;
+
     //log nozzleVel and time
     //logdata(nozzleVel);
     Serial.print("motor command = ");
