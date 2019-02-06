@@ -508,7 +508,8 @@ void update_sensors()        //update values from all sensors.
      * ADS1115 @ +/- 4.096V gain (16-bit results)
      * Output is in mph 
      */
-    double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s
+    //double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s
+    double updraft_v = 12.0;
     /**< 
      * inline flow read: 
      * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
@@ -538,11 +539,8 @@ void update_sensors()        //update values from all sensors.
 
     if(g_motor_control_mode == 0) { //if in auto PID control mode...
       error        = log_pck.nozzleVel - log_pck.updraftVel; //units = m/s
-      #define KP 2
-      #define KI 1
-      #define KD 1
+#define KP -10
       log_pck.motorcommand = log_pck.motorcommand + KP*error;  //for digital pot: recall that 255 = motor off, 0 = full speed. positive error means motor is spinning too fast.
-      //log_pck.motorcommand = (KP * error) + (KI * integral) + (KD * derivative); //integral and derivative is not defined
       if(log_pck.motorcommand > 4095) log_pck.motorcommand = 4095;
       else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
     }
