@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 02-08-19
+ * * Last Modified: 02-11-19
  * 
  * 
  * 
@@ -50,6 +50,12 @@
        __typeof__ (d) _d = (d); \
        __typeof__ (x) _x = (x); \
     ((_x - _a) / (_b - _a) * (_d - _c) + _c); })
+
+#define CHECK_MOTOR_CMD(CMD) \
+    do { \
+        if(*CMD > 4095) *CMD = 4095; \
+        else if(*CMD < 0) *CMD = 0; \
+    } while(0);
 //Pin usage
 //D10, D11, D12, D13 are SPI pins. 10 is used for Chip Select by the SD card.  However, these are all jumperable.  as of 1/24 modified to be CS 9.
 //A4 and A5 are I2c pins
@@ -84,6 +90,7 @@ typedef struct Log_Pck_Struct {  // Typedef for data packet
     float enclosureRH;
     float encl_tempC;
     float encl_rh;
+    int8_t mode;
 } Log_Pck_Struct;
  
 /**Global Variables*/
@@ -251,7 +258,22 @@ static void sprintf_f(float fval, char *c)
     sprintf(c, "%s%03d.%04d0", tmpSign, tmpInt1, tmpInt2);
    
 }
-static void send_log(Log_Pck_Struct *pck, uint8_t sel){
+static void SendToSD(char * buf){
+    static bool initialized = 0;
+    File dataFile = SD.open("datalog.txt", FILE_WRITE);
+    
+    if (dataFile) {
+        if (!initialized) {
+            initialized = true;
+            dataFile.println("time, sampling, rh(%), tempC, v_updraft, inlineFlow, "
+                             "v_nozzle, motorcmd, enclosure RH, enclosure TempC");
+        }
+        dataFile.println(buf);
+        dataFile.close();
+    }else{ Serial.println("Error opening datalog.txt!");}
+}
+
+static void send_log(Log_Pck_Struct *pck, uint8_t sel){// sel = 0 for XBee; sel = 1 for SD
     char buf[500];
     char rh[10];
     char tempC[10];
@@ -267,8 +289,6 @@ static void send_log(Log_Pck_Struct *pck, uint8_t sel){
     int hour                = now.hour();
     int minute              = now.minute();
     int second              = now.second();
-    static bool initialized = 0;
-
 
     sprintf_f(pck->rh, rh);
     sprintf_f(pck->tempC, tempC);
@@ -279,6 +299,7 @@ static void send_log(Log_Pck_Struct *pck, uint8_t sel){
     sprintf_f(pck->encl_tempC, encl_temp);
     sprintf(buf,"Time = %04d/%02d/%02d %02d:%02d:%02d, "
                 "Sampling = %d, "
+                "Mode = %d, "
                 "rh = (%%)%s, "
                 "tempC = %s, "
                 "v_updraft = %s, "
@@ -287,23 +308,14 @@ static void send_log(Log_Pck_Struct *pck, uint8_t sel){
                 "motorcmd = %04d, "
                 "encl_hum = (%%)%s, "
                 "encl_temp = %s ",
-                year, month, day, hour, minute, second, pck->isSampling,
+                year, month, day, hour, minute, second, pck->isSampling, pck->mode,
                 rh, tempC, updraft, inlineflow, nozzleVel, pck->motorcommand,
                 encl_hum, encl_temp
             );
     if(sel == 0)
         XBee.println(buf);
     else if(sel == 1){// send to SD Card
-        File dataFile = SD.open("datalog.txt", FILE_WRITE);
-        if (dataFile) {
-            if (!initialized) {
-                initialized = true;
-                dataFile.println("time, sampling, rh(%), tempC, v_updraft, inlineFlow, "
-                                 "v_nozzle, motorcmd, enclosure RH, enclosure TempC");
-            }
-            dataFile.println(buf);
-            dataFile.close();
-        }else{ Serial.println("Error opening datalog.txt!");}
+        SendToSD(buf);
     }
 }
 
@@ -344,20 +356,16 @@ static int execute_cmd(void* val, char const* cmd)
         Serial.print("issampling(SA): ");
         Serial.println(log_pck.isSampling);                
         
-    } else if(strcmp(cmd, "U")==0){  //"U" writes a value to the digital potentiometer or DAC manually
-        //i2c_writeRegisterByte (DIGITAL_POTENTIOMETER_ADDRESS, 16, *(uint8_t*)val);  //device address, instruction byte, pot value.  Call this when you want to write to the i2c.
-        dac.setVoltage(*(int*)val, false);
-        //Serial.print("Update motorspeed(U): ");
-        //Serial.println(log_pck.motorcommand);
-    
     } else if (strcmp(cmd, "MC")==0){ //"MC" writes the motor command, from 0-255 (for digital pot) and from 0-4095 (for dac), manually.  Motor control must be in mode 1 to matter.
         log_pck.motorcommand = *(int*)val;
+        CHECK_MOTOR_CMD(&log_pck.motorcommand);
         dac.setVoltage(log_pck.motorcommand, false);
-        Serial.print("mode command(MC): ");
-        Serial.println(log_pck.motorcommand);
+//        Serial.print("mode command(MC): ");
+//        Serial.println(log_pck.motorcommand);
         
     } else if (strcmp(cmd, "MD")==0){ //"MD" sets the mode for motor speed control. 0 = auto, PID feedback, 1 = manual control using "MC" command to set speed.
         g_motor_control_mode = *(int*)val;
+        log_pck.mode = g_motor_control_mode;
         Serial.print("mode changed(MD): ");
         Serial.println(g_motor_control_mode);
     }
@@ -370,17 +378,14 @@ static int execute_cmd(void* val, char const* cmd)
 static void parse_stringcmd(char* buf)
 {
     char cmd[2]; //cmd is at most 2 characters, ie, SA
-    int i=0, j;
+    int i=0;
 
-    while(!isspace(buf[i])){
-        cmd[i] = buf[i];
-        ++i;
-    }
-    cmd[i] = '\0';
-    while(isspace(buf[i])){++i;}
-    
-    j = atoi(&buf[i]);
-    execute_cmd(&j, (char const*)cmd);
+    cmd[0] = buf[0];
+    cmd[1] = buf[1];
+    cmd[2] = '\0';
+   
+    i = atoi(&buf[3]);
+    execute_cmd(&i, (char const*)cmd);
 }
 
 /**
@@ -444,11 +449,14 @@ void update_sensors()        //update values from all sensors.
     }
     else if (g_motor_control_mode == 1) { //if in mode 1, taking manual commands via serial for speed setting.  Don't recalculate motor command in feedback.
     }
-    if(log_pck.motorcommand > 4095) log_pck.motorcommand = 4095;
-    else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
+
+
+    CHECK_MOTOR_CMD(&log_pck.motorcommand);
+//    if(log_pck.motorcommand > 4095) log_pck.motorcommand = 4095;
+//    else if(log_pck.motorcommand < 0) log_pck.motorcommand = 0;
     
     if(log_pck.isSampling){//if we want to sample...
-        execute_cmd(&log_pck.motorcommand, "U"); //send the current motor command value to the i2c potentiometer
+        execute_cmd(&log_pck.motorcommand, "MC"); //send the current motor command value to the i2c potentiometer
         digitalWrite(MOTOR_ENABLE_PIN, HIGH); // and turn on solenoid using rugged shield (make sure it's on)
     }
     else{//make sure motors are off
@@ -467,18 +475,22 @@ void loop()
     if(XBee.available() > 0){ //if serial buffer received command //
         if(get_stringcmd()){//if we received newline character, execute what's in the command buffer so far.
             parse_stringcmd(g_cmdBuffer);  //parse and execute command
-            memset(g_cmdBuffer, 0, sizeof(g_cmdBuffer));
+            memset(g_cmdBuffer, 0, sizeof(g_cmdBuffer)); //zero out buffer
         }
     }
-    update_sensors();
-    
-    if(g_Scycles >= PERIOD_SENDDATA){//send wirelessly
-        g_Scycles = 0;
-        send_log(&log_pck, 0);      
-    }
-    if(g_Lcycles >= PERIOD_LOGDATA){//log to sd card 
-        g_Lcycles = 0;
-        send_log(&log_pck, 1);
+    if(g_update_flag){//if flag is set
+      
+        g_update_flag = 0;
+        update_sensors();
+        
+        if(g_Scycles >= PERIOD_SENDDATA){//send wirelessly
+            g_Scycles = 0;
+            send_log(&log_pck, 0);      
+        }
+        if(g_Lcycles >= PERIOD_LOGDATA){//log to sd card 
+            g_Lcycles = 0;
+            send_log(&log_pck, 1);
+        }
     }
 //    tests(); //function used to test other functions.
 }
