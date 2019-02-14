@@ -401,7 +401,7 @@ double movingAverage(double *Arr, float *Sum, volatile int pos, int len, double 
 void update_sensors()        //update values from all sensors.  
 {
     double error;
-    float  iso_nozzle_diameter = .0031f;   // isokinetic nozzle diameter in meters
+    float  iso_nozzle_diameter = .0062f;   // isokinetic nozzle diameter in meters
     g_tempC_inline = (ina219Temp.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
     g_RH_inline = (ina219RH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
     g_tempC_enclosure = htu.readTemperature(); //no ring buffer necessary
