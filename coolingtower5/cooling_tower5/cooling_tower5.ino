@@ -308,13 +308,15 @@ static void send_log(Log_Pck_Struct *pck, uint8_t sel){// sel = 0 for XBee; sel 
                 "motorcmd = %04d, "
                 "encl_hum = (%%)%s, "
                 "encl_temp = %s ",
+                //"<EOT>",
                 year, month, day, hour, minute, second, pck->isSampling, pck->mode,
                 rh, tempC, updraft, inlineflow, nozzleVel, pck->motorcommand,
                 encl_hum, encl_temp
             );
-    if(sel == 0)
-        XBee.println(buf);
-    else if(sel == 1){// send to SD Card
+    if(sel == 0) {
+        XBee.print(buf);
+        XBee.println(" <EOT>"); //print end of transmission signal for parser to use
+    } else if(sel == 1){// send to SD Card
         SendToSD(buf);
     }
 }
