@@ -1,7 +1,7 @@
 /*
  * * Cooling Tower Project
  * * Author: Thomas Turner, thomastdt@gmail.com
- * * Last Modified: 02-11-19
+ * * Last Modified: 04-16-19
  * 
  * IMPORTANT NOTE: THIS CODE USES A NON-STANDARD VERSION OF THE INA219 LIBARY.  USE THE LIBRARY FROM GIT, NOT THE STOCK ONE
  * 
@@ -168,7 +168,7 @@ void setup()
       }
     } 
     /**initialize ADC's*/
-    ads.setGain(GAIN_ONE);
+    ads.setGain(GAIN_ONE); // 1x gain   +/- 4.096V  1 bit = 2mV for updraft meter.  The meter should output ~500mv at 9 m/s, but can go up to 2500mv
     ads_i.setGain(GAIN_TWOTHIRDS); // 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default).  TSI flowmeter has an output of 10V.  We divide in half with voltage divider, but need a range of 0-5V.
     ads.begin();
     ads_i.begin();
@@ -411,15 +411,16 @@ void update_sensors()        //update values from all sensors.
     
     /**<
      * updraft velocity read:
-     * adc value * multiplier for gain 1 of ads1115 * mph coefficient
-     * ADS1115 @ +/- 4.096V gain (16-bit results)
-     * Output is in mph 
+     * adc value * multiplier for gain 1 of ads1015 * m/s coefficient
+     * ADS1015 @ +/- 4.096V gain (12-bit results)
+     * Output is in m/s 
      */
     //double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s
-    double updraft_v = 12.0;
+    double updraft_v = ads.readADC_Differential_0_1() * 2.0f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s.  Gain 1 coeff is 2 for model 1015. Device coeff is 0.018 m/s per mv
+    //double updraft_v = 8.0; //static value just for testing in place
     /**< 
      * inline flow read: 
-     * adc value * multiplier for gain 1 of ads1015 * 2 [because voltage into adc has doubled from 5v to 10v]
+     * 16 bit adc value * multiplier for gain 2/3 of ads1115 * 2 [because voltage into adc has doubled from 5v to 10v]
      * Output is in mV but converted to L/min 
      */
     double inline_f  = MAP(ads_i.readADC_SingleEnded(1) * 0.1875f * 2, 0.0, 10000.0, 0.0, 200.0)  //read TSI inline flow meter.  Gain 2/3 coeff. Map 0-10V to 0-200 lpm. Multiply original voltage by 2 because of voltage divider.
