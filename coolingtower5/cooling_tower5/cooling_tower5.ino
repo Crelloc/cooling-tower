@@ -3,7 +3,7 @@
  * * Author: Thomas Turner, thomastdt@gmail.com
  * * Last Modified: 02-11-19
  * 
- * 
+ * IMPORTANT NOTE: THIS CODE USES A NON-STANDARD VERSION OF THE INA219 LIBARY.  USE THE LIBRARY FROM GIT, NOT THE STOCK ONE
  * 
  *  This version uses a number of devices and shields. 
  *  
@@ -33,7 +33,7 @@
 #define BUF_SIZE                        6
 #define ADC2_ADDRESS                    0x48
 //#define INDUSTRIAL_SHIELD_GPIO_ADDRESS  0x21
-#define SCREW_IN_SHIELD_ADC_ADDRESS     0x4A
+#define UPDRAFT_ADC_ADDRESS     0x4A
 #define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
@@ -64,7 +64,7 @@
 
 
 static Adafruit_MCP23017 mcp1;
-static Adafruit_ADS1115 ads(SCREW_IN_SHIELD_ADC_ADDRESS);
+static Adafruit_ADS1015 ads(UPDRAFT_ADC_ADDRESS);
 static Adafruit_ADS1115 ads_i(ADC2_ADDRESS);     /* new shield with ADS 1115 to measure TSI flowmeter */
 static Adafruit_INA219 ina219Temp(0x44);  
 static Adafruit_INA219 ina219RH(0x41);
