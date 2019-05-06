@@ -416,8 +416,10 @@ void update_sensors()        //update values from all sensors.
      * Output is in m/s 
      */
     //double updraft_v = ads.readADC_Differential_0_1() * 0.125f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s
-    double updraft_v = ads.readADC_Differential_0_1() * 2.0f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s.  Gain 1 coeff is 2 for model 1015. Device coeff is 0.018 m/s per mv
+    //double updraft_v = ads.readADC_Differential_0_1() * 2.0f * 0.018; //[adc value * Gain 1 coeff * m/s coeff], velocity in m/s.  Gain 1 coeff is 2 for model 1015. Device coeff is 0.018 m/s per mv
     //double updraft_v = 8.0; //static value just for testing in place
+
+    double updraft_v  = ads_i.readADC_SingleEnded(2) * 0.1875f * .0018;  //read updraft anemometer.  Gain 2/3 coeff.  Multiply by 0.018 to get velocity in m/s, per manual
     /**< 
      * inline flow read: 
      * 16 bit adc value * multiplier for gain 2/3 of ads1115 * 2 [because voltage into adc has doubled from 5v to 10v]
