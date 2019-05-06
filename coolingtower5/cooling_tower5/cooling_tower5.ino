@@ -33,8 +33,8 @@
 #define BUF_SIZE                        6
 #define ADC2_ADDRESS                    0x48
 //#define INDUSTRIAL_SHIELD_GPIO_ADDRESS  0x21
-#define UPDRAFT_ADC_ADDRESS     0x4A
-#define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
+//#define UPDRAFT_ADC_ADDRESS     0x4A
+//#define DIGITAL_POTENTIOMETER_ADDRESS   0x2c
 #define RH_CURRENT_LOOP_ADDRESS         0x41
 #define TEMPC_CURRENT_LOOP_ADDDRESS     0x44
 #define ELECTRONICS_RH_ADDRESS          0x40 
@@ -64,7 +64,7 @@
 
 
 static Adafruit_MCP23017 mcp1;
-static Adafruit_ADS1015 ads(UPDRAFT_ADC_ADDRESS);
+//static Adafruit_ADS1015 ads(UPDRAFT_ADC_ADDRESS);
 static Adafruit_ADS1115 ads_i(ADC2_ADDRESS);     /* new shield with ADS 1115 to measure TSI flowmeter */
 static Adafruit_INA219 ina219Temp(0x44);  
 static Adafruit_INA219 ina219RH(0x41);
@@ -168,9 +168,9 @@ void setup()
       }
     } 
     /**initialize ADC's*/
-    ads.setGain(GAIN_ONE); // 1x gain   +/- 4.096V  1 bit = 2mV for updraft meter.  The meter should output ~500mv at 9 m/s, but can go up to 2500mv
+    //ads.setGain(GAIN_ONE); // 1x gain   +/- 4.096V  1 bit = 2mV for updraft meter.  The meter should output ~500mv at 9 m/s, but can go up to 2500mv
     ads_i.setGain(GAIN_TWOTHIRDS); // 2/3x gain +/- 6.144V  1 bit = 3mV      0.1875mV (default).  TSI flowmeter has an output of 10V.  We divide in half with voltage divider, but need a range of 0-5V.
-    ads.begin();
+    //ads.begin();
     ads_i.begin();
     
     /** initialize timer1 - 16 bit (65536) */
