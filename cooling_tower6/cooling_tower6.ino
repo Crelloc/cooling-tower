@@ -69,10 +69,12 @@
 static Adafruit_MCP23017 mcp1;
 //static Adafruit_ADS1015 ads(UPDRAFT_ADC_ADDRESS);
 static Adafruit_ADS1115 ads_i(ADC2_ADDRESS);     /* new shield with ADS 1115 to measure TSI flowmeter */
-static Adafruit_INA219 ina219Temp(0x44);  
-static Adafruit_INA219 ina219RH(0x41);
+static Adafruit_INA219 ina219Temp(TEMPC_CURRENT_LOOP_ADDDRESS);  
+static Adafruit_INA219 ina219RH(RH_CURRENT_LOOP_ADDRESS);
 static Adafruit_HTU21DF htu = Adafruit_HTU21DF();
 static Adafruit_MCP4725 dac;
+Adafruit_INA219 AmbTemp(AMB_TEMP_ADDRESS); // default address, no jumper pads soldered
+Adafruit_INA219 AmbRH(AMB_RH_ADDRESS); // both jumper pads soldered
 
 
 //For Atmega2560, ATmega32U4, etc.
@@ -192,8 +194,12 @@ void setup()
     /**initialize current sensors**/
     ina219Temp.begin();
     ina219RH.begin();
+    AmbRH.begin();
+    AmbTemp.begin();
     ina219Temp.setCalibration_32V_20mA(); //may have to edit library to invoke 32v_20mA.  otherwise, initialize as 32v_1A and divide results by 50.
     ina219RH.setCalibration_32V_20mA();
+    AmbTemp.setCalibration_32V_20mA(); //custom library required for this line
+    AmbRH.setCalibration_32V_20mA();
 
     
    // initialize digital pin for motor enable as an output.
@@ -424,8 +430,8 @@ void update_sensors()        //update values from all sensors.
     g_tempC_enclosure = 0; // sensor temporarily disabled
     g_RH_enclosure = 0; // sensor temporarily disabled
 
-    //g_tempC_amb = (AmbTemp.getCurrent_mA()-4)/16*100-40; //get 4-20ma signal and convert to -40 - +60 C scale.  No ring buffer for this value
-    //g_RH_amb = (AmbRH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
+    g_tempC_amb = (AmbTemp.getCurrent_mA()-4)/16*100-40; //get 4-20ma signal and convert to -40 - +60 C scale.  No ring buffer for this value
+    g_RH_amb = (AmbRH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
     
     /**<
      * updraft velocity read:
