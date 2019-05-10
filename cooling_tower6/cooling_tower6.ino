@@ -159,7 +159,7 @@ void setup()
         // January 21, 2014 at 3am you would call:
         // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
     }
-    //rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); //uncomment this line to sync rtc with computer time
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); //uncomment this line to sync rtc with computer time
     {//SD Card section below
       Serial.print("\nInitializing SD card...");
                                                  // make sure that the default chip select pin is set to
