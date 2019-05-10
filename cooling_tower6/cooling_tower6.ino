@@ -46,6 +46,8 @@
 #define SD_CARD_CS_PIN                  9 //not factory, must modify jumper on board to make it 9
 #define MOTOR_ENABLE_PIN                6 //digital pin to control relay shield for motor enable.  Pin 6 is relay 2 on relay shield.
 
+#define APS_FlowRate                    8; //lpm 5lpm for APS, 3 lpm for dusttrak
+
 #define MAP(x, a, b, c, d) \
     ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
@@ -422,7 +424,7 @@ double movingAverage(double *Arr, float *Sum, volatile int pos, int len, double 
 void update_sensors()        //update values from all sensors.  
 {
     double error;
-    float  iso_nozzle_diameter = .0062f;   // isokinetic nozzle diameter in meters
+    float  iso_nozzle_diameter = .0062f;   // isokinetic nozzle diameter in meters // stock nozzle = 0.244" = 0.0062m, 0.191" = .00485m, 0.287" = 0.0073m, 0.217" = 0.0055m
     g_tempC_inline = (ina219Temp.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100C scale.  No ring buffer for this value
     g_RH_inline = (ina219RH.getCurrent_mA()-4)/16*100; //get 4-20ma signal and convert to 0-100% scale.  No ring buffer for this value
 //    g_tempC_enclosure = htu.readTemperature(); //no ring buffer necessary
@@ -446,7 +448,7 @@ void update_sensors()        //update values from all sensors.
      * Output is in mV but converted to L/min 
      */
     double inline_f  = MAP(ads_i.readADC_SingleEnded(1) * 0.1875f * 2, 0.0, 10000.0, 0.0, 200.0)  //read TSI inline flow meter.  Gain 2/3 coeff. Map 0-10V to 0-200 lpm. Multiply original voltage by 2 because of voltage divider.
-                                  * (273.15 + g_tempC_inline) / (273.15 + 21.11); //units = liters/min
+                                  * (273.15 + g_tempC_inline) / (273.15 + 21.11) + APS_FlowRate; //units = liters/min.  TSI APS flow rate not included in total flow measured by meter.
 
     /**store velocity and flow in ring buffer.*/
     if(g_buffer_index == BUF_SIZE){
